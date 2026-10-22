@@ -1,2 +1,2 @@
-"""pytest 설정 — 독립 실행용 스크립트 제외."""
+"""pytest config — exclude standalone scripts."""
 collect_ignore = ["test_smoke.py"]

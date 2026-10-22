@@ -1,4 +1,4 @@
-"""크로스 플랫폼 프로세스 유틸 — tasklist/taskkill/powershell 대체."""
+"""Cross-platform process utilities, replacing tasklist/taskkill/powershell."""
 
 import os
 import signal
@@ -6,13 +6,13 @@ import sys
 
 
 def is_pid_alive(pid: int) -> bool:
-    """PID가 실행 중인지 확인. 크로스 플랫폼."""
+    """Check whether a PID is running. Cross-platform."""
     try:
         import psutil
         return psutil.pid_exists(pid)
     except ImportError:
         pass
-    # psutil 없으면 OS 별 폴백
+    # Without psutil, fall back to OS-specific checks
     if sys.platform == "win32":
         import subprocess
         r = subprocess.run(
@@ -28,7 +28,7 @@ def is_pid_alive(pid: int) -> bool:
 
 
 def kill_pid(pid: int):
-    """PID 강제 종료. 크로스 플랫폼."""
+    """Force-kill a PID. Cross-platform."""
     try:
         import psutil
         p = psutil.Process(pid)
@@ -47,7 +47,7 @@ def kill_pid(pid: int):
 
 
 def find_processes(name_pattern: str):
-    """이름 패턴으로 프로세스 검색. [(pid, name, cmdline), ...] 반환."""
+    """Find processes by name pattern. Returns [(pid, name, cmdline), ...]."""
     try:
         import psutil
         results = []

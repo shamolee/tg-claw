@@ -1,12 +1,12 @@
-"""프로젝트 설정, 경로, 상수 — config.yaml에서 로드"""
+"""Project settings, paths and constants, loaded from config.yaml"""
 
 import os
 import sys
 
-# --- config.yaml 로드 ---
+# --- Load config.yaml ---
 
 _TELECLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# config.yaml 탐색: 환경변수 TELECLAW_CONFIG → 패키지 상위 → 홈 디렉토리
+# config.yaml lookup: TELECLAW_CONFIG env var → package parent dir → home dir
 _CONFIG_PATH = ""
 _env_config = os.environ.get("TELECLAW_CONFIG", "")
 for _candidate in [
@@ -18,24 +18,24 @@ for _candidate in [
         _CONFIG_PATH = _candidate
         break
 if not _CONFIG_PATH:
-    _CONFIG_PATH = os.path.join(_TELECLAW_DIR, "config.yaml")  # 폴백 (파일 없음 경고용)
+    _CONFIG_PATH = os.path.join(_TELECLAW_DIR, "config.yaml")  # fallback (used for the "not found" warning)
 
 
 def _load_yaml(path: str) -> dict:
-    """config.yaml 로드. PyYAML 우선, 없으면 간단 파서 폴백."""
+    """Load config.yaml. Uses PyYAML if available, otherwise a simple fallback parser."""
     if not os.path.exists(path):
         print(f"[config] config.yaml not found: {path}", file=sys.stderr)
         print(f"[config] Run: cp config.example.yaml config.yaml", file=sys.stderr)
         return {}
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-    # PyYAML 우선
+    # Prefer PyYAML
     try:
         import yaml
         return yaml.safe_load(content) or {}
     except ImportError:
         pass
-    # 폴백: 간단 파서 (중첩 2단계까지)
+    # Fallback: simple parser (up to 2 levels of nesting)
     result = {}
     current_section = None
     current_item = None
@@ -73,22 +73,22 @@ def _load_yaml(path: str) -> dict:
 
 _cfg = _load_yaml(_CONFIG_PATH)
 
-# --- 프로젝트 설정 ---
+# --- Project settings ---
 
 CHAT_ID = _cfg.get("chat_id", "")
 if not CHAT_ID:
     print("[config] WARNING: chat_id is empty — no users will be allowed", file=sys.stderr)
 LANG = _cfg.get("lang", "en")
 
-# 알림 아이콘 (커스터마이즈 가능)
+# Notification icons (customizable)
 _icons = _cfg.get("icons", {})
 ICON_THINKING = _icons.get("thinking", "💭...") if isinstance(_icons, dict) else "💭..."
 ICON_DONE = _icons.get("done", "✓") if isinstance(_icons, dict) else "✓"
 
-# 출력 레벨: minimal / normal / verbose
+# Output level: minimal / normal / verbose
 OUTPUT_LEVEL = _cfg.get("output_level", "normal")
 
-# 허용된 사용자 ID 목록 (비어있으면 CHAT_ID만 허용)
+# Allowed user IDs (if empty, only CHAT_ID is allowed)
 _allowed_raw = _cfg.get("allowed_users", "")
 ALLOWED_USERS = set(uid.strip() for uid in _allowed_raw.split(",") if uid.strip()) if _allowed_raw else set()
 if CHAT_ID:
@@ -104,17 +104,17 @@ for name, info in _cfg.get("projects", {}).items():
             "mcp_json": os.path.join(info.get("cwd", ""), ".mcp.json"),
         }
 
-# --- 경로 ---
+# --- Paths ---
 
-# config.yaml 위치 기준으로 디렉토리 설정 (pip install 환경 대응)
+# Directories are relative to config.yaml (supports pip installs)
 TELECLAW_DIR = os.path.dirname(_CONFIG_PATH) if _CONFIG_PATH else _TELECLAW_DIR
 
-# 런타임 파일은 모두 storage_dir 아래 (상대 경로는 config.yaml 위치 기준)
+# All runtime files live under storage_dir (relative paths are resolved against config.yaml)
 STORAGE_DIR = os.path.join(TELECLAW_DIR, os.path.expanduser(_cfg.get("storage_dir", "storage")))
-LOGS_DIR = os.path.join(STORAGE_DIR, "logs")        # 로그만
-LOCKS_DIR = os.path.join(STORAGE_DIR, "locks")      # 단일 인스턴스 lock
-STATE_DIR = os.path.join(STORAGE_DIR, "state")      # 재시작 후에도 유지해야 하는 상태
-UPLOADS_DIR = os.path.join(STORAGE_DIR, "uploads")  # 텔레그램으로 받은 이미지/파일
+LOGS_DIR = os.path.join(STORAGE_DIR, "logs")        # logs only
+LOCKS_DIR = os.path.join(STORAGE_DIR, "locks")      # single-instance locks
+STATE_DIR = os.path.join(STORAGE_DIR, "state")      # state that must survive restarts
+UPLOADS_DIR = os.path.join(STORAGE_DIR, "uploads")  # images/files received via Telegram
 
 LOG_FILE = os.path.join(LOGS_DIR, "teleclaw.log")
 WRAPPER_LOG_FILE = os.path.join(LOGS_DIR, "wrapper.log")
@@ -126,23 +126,24 @@ SESSION_IDS_FILE = os.path.join(STATE_DIR, "session_ids.json")
 DB_FILE = os.path.join(STATE_DIR, "teleClaw.db")
 CLAUDE_SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
 
-# 업로드 보관 기간 (일). 0이면 삭제하지 않음
+# Upload retention in days. 0 = never delete
 UPLOAD_RETENTION_DAYS = int(_cfg.get("upload_retention_days", 7))
 
-# Windows 예약 작업 이름 (service.py, win-scripts/*.ps1)
+# Windows scheduled task name (service.py, win-scripts/*.ps1)
 SERVICE_NAME = _cfg.get("service_name", "TeleClaw")
 
-# --- 상수 ---
+# --- Constants ---
 
-HEALTH_CHECK_INTERVAL = 120  # 2분
-STUCK_THRESHOLD = 1800  # 30분
+HEALTH_CHECK_INTERVAL = 120  # 2 min
+STUCK_THRESHOLD = 1800  # 30 min
 MAX_RESTARTS_PER_WINDOW = 3
-RESTART_WINDOW = 1800  # 30분
+RESTART_WINDOW = 1800  # 30 min
 AUTO_RESUME_ENABLED = True
 
 AUTO_RESUME_MODE = "resume"
+# Message keys (resources/lang) of the prompt sent to Claude after a restart, per mode
 AUTO_RESUME_PROMPTS = {
-    "resume": "[시스템 재시작됨] 직전에 수행하던 작업이 완료되지 않았다면 이어서 진행해줘. 완료되었다면 대기해줘.",
-    "check": "[시스템 재시작됨] 직전에 수행하던 작업이 무엇이었는지 간단히 알려줘. 이어서 진행하지는 마.",
+    "resume": "auto_resume_prompt_resume",
+    "check": "auto_resume_prompt_check",
     "none": None,
 }

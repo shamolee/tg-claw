@@ -1,52 +1,41 @@
-"""텔레그램 API 함수 + 텍스트 유틸리티"""
+"""Telegram API functions + text utilities"""
 
 import re
 import httpx
 
 from .config import CHAT_ID, PROJECTS
 from .logging_utils import log
+from .messages import msg_for
 
-# --- 봇 명령어 메뉴 (Telegram의 "/" 자동완성) ---
+# --- Bot command menu (Telegram "/" autocomplete) ---
 
-# (command, en, ko) — 이름은 소문자/숫자/_ 만 허용, 별칭(/s, /u 등)은 메뉴에서 제외
+# Command names; descriptions come from cmd_<name> in resources/lang.
+# Names allow only lowercase/digits/_; aliases (/s, /u, etc.) are left out of the menu
 BOT_COMMANDS = [
-    ("status", "Session status (OK / DEAD / STUCK)", "세션 상태"),
-    ("usage", "Claude usage (5h / 7d limits)", "API 사용량"),
-    ("sys", "System info (CPU / memory / processes)", "시스템 (CPU/RAM)"),
-    ("log", "Recent logs", "최근 로그"),
-    ("mode", "Output mode: minimal or normal", "출력 모드"),
-    ("esc", "Interrupt the current task", "현재 작업 중단"),
-    ("pause", "Pause the session", "세션 일시정지"),
-    ("restart", "Restart the session (keeps context)", "세션 재시작 (컨텍스트 유지)"),
-    ("reset", "Reset the session (clears context)", "세션 리셋 (컨텍스트 초기화)"),
-    ("ask", "Quick question in a separate session", "별도 세션에 빠른 질문"),
-    ("compact", "Compress context", "컨텍스트 압축"),
-    ("context", "Context usage details", "컨텍스트 사용량"),
-    ("cost", "Session cost and duration", "세션 비용/시간"),
-    ("help", "Command list", "명령어 목록"),
+    "status", "usage", "sys", "log", "mode", "esc", "pause",
+    "restart", "reset", "ask", "compact", "context", "cost", "help",
 ]
 
 
 def register_bot_commands(bot_token: str, lang: str = "en") -> bool:
-    """봇 명령어 목록을 Telegram에 등록 (setMyCommands). 실패해도 예외 없이 False."""
-    idx = 2 if lang == "ko" else 1
-    commands = [{"command": c[0], "description": c[idx]} for c in BOT_COMMANDS]
+    """Register the bot command list with Telegram (setMyCommands). Returns False on failure, never raises."""
+    commands = [{"command": c, "description": msg_for(lang, f"cmd_{c}")} for c in BOT_COMMANDS]
     url = f"https://api.telegram.org/bot{bot_token}/setMyCommands"
     try:
         r = httpx.post(url, json={"commands": commands}, timeout=15)
         ok = bool(r.json().get("ok"))
         if not ok:
-            log(f"setMyCommands 실패: {r.text[:200]}")
+            log(f"setMyCommands failed: {r.text[:200]}")
         return ok
     except Exception as e:
-        log(f"setMyCommands 실패: {e}")
+        log(f"setMyCommands failed: {e}")
         return False
 
 
-# --- 텔레그램 API ---
+# --- Telegram API ---
 
 def send_telegram(text: str, bot_token: str, bot_name: str = "", use_html: bool = False, notify: bool = False) -> int:
-    """메시지 전송 후 message_id 반환 (실패 시 0). notify=True면 알림 소리 활성화."""
+    """Send a message and return its message_id (0 on failure). notify=True enables the notification sound."""
     if bot_name:
         prefix = f"[{bot_name}] "
         text = prefix + text
@@ -71,12 +60,12 @@ def send_telegram(text: str, bot_token: str, bot_name: str = "", use_html: bool 
                 data = r.json()
             last_msg_id = data.get("result", {}).get("message_id", 0)
         except Exception as e:
-            log(f"텔레그램 전송 실패: {e}")
+            log(f"Telegram send failed: {e}")
     return last_msg_id
 
 
 def edit_telegram(text: str, message_id: int, bot_token: str, bot_name: str = "") -> bool:
-    """기존 메시지 수정. "message not modified" 무시."""
+    """Edit an existing message. Ignores "message not modified"."""
     if bot_name and not text.startswith(f"[{bot_name}]"):
         text = f"[{bot_name}] {text}"
     url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
@@ -91,10 +80,10 @@ def edit_telegram(text: str, message_id: int, bot_token: str, bot_name: str = ""
             return True
         if r.status_code == 400 and "not modified" in r.text:
             return True
-        log(f"edit 실패 ({r.status_code}): {r.text[:100]}")
+        log(f"edit failed ({r.status_code}): {r.text[:100]}")
         return False
     except Exception as e:
-        log(f"edit 예외: {e}")
+        log(f"edit exception: {e}")
         return False
 
 
@@ -111,10 +100,10 @@ def send_ack(bot_token: str, msg_id: int, bot_name: str = ""):
         pass
 
 
-# --- 파일 전송 (이미지/문서) ---
+# --- File sending (images/documents) ---
 
 def _build_multipart(chat_id: str, field: str, file_path: str, caption: str = "") -> tuple[bytes, str]:
-    """multipart/form-data body 구성. Returns: (body_bytes, boundary)"""
+    """Build a multipart/form-data body. Returns: (body_bytes, boundary)"""
     import mimetypes
     boundary = "----TeleClawBoundary"
     body = b""
@@ -131,54 +120,54 @@ def _build_multipart(chat_id: str, field: str, file_path: str, caption: str = ""
 
 
 def send_photo_sync(bot_token: str, file_path: str, caption: str = "") -> int:
-    """동기 이미지 전송. Returns: message_id (0 on failure)"""
+    """Send an image (sync). Returns: message_id (0 on failure)"""
     body, boundary = _build_multipart(CHAT_ID, "photo", file_path, caption)
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
     try:
         r = httpx.post(url, content=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=30)
         return r.json().get("result", {}).get("message_id", 0)
     except Exception as e:
-        log(f"사진 전송 실패: {e}")
+        log(f"Photo send failed: {e}")
         return 0
 
 
 def send_file_sync(bot_token: str, file_path: str, caption: str = "") -> int:
-    """동기 파일 전송. Returns: message_id (0 on failure)"""
+    """Send a file (sync). Returns: message_id (0 on failure)"""
     body, boundary = _build_multipart(CHAT_ID, "document", file_path, caption)
     url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     try:
         r = httpx.post(url, content=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=30)
         return r.json().get("result", {}).get("message_id", 0)
     except Exception as e:
-        log(f"파일 전송 실패: {e}")
+        log(f"File send failed: {e}")
         return 0
 
 
 async def async_send_photo(ahttp: httpx.AsyncClient, bot_token: str, file_path: str, caption: str = "") -> int:
-    """비동기 이미지 전송. Returns: message_id"""
+    """Send an image (async). Returns: message_id"""
     body, boundary = _build_multipart(CHAT_ID, "photo", file_path, caption)
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
     try:
         r = await ahttp.post(url, content=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=30)
         return r.json().get("result", {}).get("message_id", 0)
     except Exception as e:
-        log(f"사진 전송 실패: {e}")
+        log(f"Photo send failed: {e}")
         return 0
 
 
 async def async_send_file(ahttp: httpx.AsyncClient, bot_token: str, file_path: str, caption: str = "") -> int:
-    """비동기 파일 전송. Returns: message_id"""
+    """Send a file (async). Returns: message_id"""
     body, boundary = _build_multipart(CHAT_ID, "document", file_path, caption)
     url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     try:
         r = await ahttp.post(url, content=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=30)
         return r.json().get("result", {}).get("message_id", 0)
     except Exception as e:
-        log(f"파일 전송 실패: {e}")
+        log(f"File send failed: {e}")
         return 0
 
 
-# --- 텍스트 정리 ---
+# --- Text cleanup ---
 
 _re_blank_lines = re.compile(r"\n{3,}")
 _re_control_chars = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -187,13 +176,13 @@ _re_bare_url = re.compile(r"https?://\S+")
 
 
 def _strip_urls(text: str) -> str:
-    """마크다운 링크 → 텍스트만, bare URL → 삭제"""
+    """Markdown links → text only, bare URLs → removed"""
     text = _re_md_link.sub(r"\1", text)
     return _re_bare_url.sub("", text)
 
 
 def _clean_text(text: str) -> str:
-    """제어 문자 제거 + 깨진 문자 복구 + URL 제거 + 빈 줄 정리"""
+    """Strip control chars + repair broken chars + remove URLs + tidy blank lines"""
     text = _re_control_chars.sub("", text)
     try:
         raw = text.encode("utf-8", errors="surrogateescape")
@@ -206,15 +195,15 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-# --- 마크다운 → 텔레그램 HTML 변환 ---
+# --- Markdown → Telegram HTML conversion ---
 
 def _escape_html(text: str) -> str:
-    """HTML 특수문자 이스케이프"""
+    """Escape HTML special characters"""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _convert_table_to_list(text: str) -> str:
-    """마크다운 테이블 → 리스트 형태 변환 (텔레그램 <table> 미지원)"""
+    """Markdown table → list form (Telegram has no <table> support)"""
     lines = text.split("\n")
     result = []
     i = 0
@@ -238,7 +227,7 @@ def _convert_table_to_list(text: str) -> str:
 
 
 def _protect_code_blocks(text: str) -> tuple[str, list, list]:
-    """코드블록/인라인코드를 플레이스홀더로 치환. (text, code_blocks, inline_codes) 반환."""
+    """Replace code blocks/inline code with placeholders. Returns (text, code_blocks, inline_codes)."""
     code_blocks = []
     def _save_code(m):
         code_blocks.append(m.group(1))
@@ -256,7 +245,7 @@ def _protect_code_blocks(text: str) -> tuple[str, list, list]:
 
 
 def _restore_code_blocks(text: str, code_blocks: list, inline_codes: list) -> str:
-    """플레이스홀더를 HTML 태그로 복원."""
+    """Restore placeholders as HTML tags."""
     for i, code in enumerate(inline_codes):
         text = text.replace(f"__INLINE_{i}__", f"<code>{_escape_html(code)}</code>")
     for i, code in enumerate(code_blocks):
@@ -265,7 +254,7 @@ def _restore_code_blocks(text: str, code_blocks: list, inline_codes: list) -> st
 
 
 def _convert_markdown_formatting(text: str) -> str:
-    """마크다운 서식 → 텔레그램 HTML 태그. 우선순위: ***>**>*"""
+    """Markdown formatting → Telegram HTML tags. Precedence: ***>**>*"""
     text = re.sub(r"\*\*\*(?=\S)(.+?)(?<=\S)\*\*\*", r"<b><i>\1</i></b>", text)
     text = re.sub(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"(?<!\*)\*(?=\S)([^*]+?)(?<=\S)\*(?!\*)", r"<i>\1</i>", text)
@@ -275,7 +264,7 @@ def _convert_markdown_formatting(text: str) -> str:
 
 
 def _merge_blockquotes(text: str) -> str:
-    """연속 인용줄(> ...)을 하나의 <blockquote>로 병합."""
+    """Merge consecutive quote lines (> ...) into a single <blockquote>."""
     lines = text.split("\n")
     result = []
     in_quote = False
@@ -298,11 +287,11 @@ def _merge_blockquotes(text: str) -> str:
 
 
 def _md_to_telegram_html(text: str) -> str:
-    """GitHub Flavored Markdown → Telegram HTML 변환. 실패 시 plain text 반환.
+    """GitHub Flavored Markdown → Telegram HTML. Returns plain text on failure.
 
-    파이프라인:
-      테이블→리스트 → 코드블록 보호 → HTML이스케이프 → 서식변환
-      → 인용병합 → URL제거 → 도구라인강조 → 빈줄정리 → 코드블록 복원
+    Pipeline:
+      tables→lists → protect code blocks → HTML-escape → formatting
+      → merge quotes → remove URLs → highlight tool lines → tidy blank lines → restore code blocks
     """
     try:
         text = _convert_table_to_list(text)
@@ -316,14 +305,14 @@ def _md_to_telegram_html(text: str) -> str:
         text = _restore_code_blocks(text, code_blocks, inline_codes)
         return text
     except Exception as e:
-        log(f"HTML 변환 실패: {e}")
+        log(f"HTML conversion failed: {e}")
         return _escape_html(text)
 
 
-# --- 메시지 분할 ---
+# --- Message splitting ---
 
 def _split_message(text: str, max_len: int = 4000) -> list:
-    """의미 단위로 메시지 분할 (빈줄 > 줄바꿈 > 공백 우선)"""
+    """Split a message at natural boundaries (blank line > newline > space)"""
     if len(text) <= max_len:
         return [text]
 
@@ -347,7 +336,7 @@ def _split_message(text: str, max_len: int = 4000) -> list:
     return chunks
 
 
-# --- 비동기 텔레그램 API (세션 루프용) ---
+# --- Async Telegram API (for session loops) ---
 
 async def async_send_telegram(ahttp: httpx.AsyncClient, text: str, bot_token: str, bot_name: str = "", use_html: bool = False, reply_to: int = 0) -> int:
     text = _clean_text(text)
@@ -373,7 +362,7 @@ async def async_send_telegram(ahttp: httpx.AsyncClient, text: str, bot_token: st
             data = r.json()
         return data.get("result", {}).get("message_id", 0)
     except Exception as e:
-        log(f"텔레그램 전송 실패: {e}")
+        log(f"Telegram send failed: {e}")
         return 0
 
 
@@ -401,15 +390,15 @@ async def async_edit_telegram(ahttp: httpx.AsyncClient, text: str, message_id: i
             r = await ahttp.post(url, json=payload, timeout=15)
             if r.status_code == 200:
                 return True
-        log(f"edit 실패 ({r.status_code}): {r.text[:100]}")
+        log(f"edit failed ({r.status_code}): {r.text[:100]}")
         return False
     except Exception as e:
-        log(f"edit 예외: {e}")
+        log(f"edit exception: {e}")
         return False
 
 
 async def async_react(ahttp: httpx.AsyncClient, bot_token: str, msg_id: int, emoji: str = "\U0001f440"):
-    """사용자 메시지에 리액션 추가 (알림 없이 수신 확인)."""
+    """Add a reaction to the user's message (silent read receipt)."""
     url = f"https://api.telegram.org/bot{bot_token}/setMessageReaction"
     try:
         await ahttp.post(url, json={
@@ -422,7 +411,7 @@ async def async_react(ahttp: httpx.AsyncClient, bot_token: str, msg_id: int, emo
 
 
 def _notify_all(text: str):
-    """전체 알림 — 모든 봇에 broadcast (동기)"""
+    """Global notice — broadcast to all bots (sync)"""
     sent = set()
     for name, config in PROJECTS.items():
         token = config.get("bot_token", "")
@@ -432,7 +421,7 @@ def _notify_all(text: str):
 
 
 async def async_notify_all(ahttp, text: str):
-    """전체 알림 — 모든 봇에 broadcast (비동기)"""
+    """Global notice — broadcast to all bots (async)"""
     sent = set()
     for name, config in PROJECTS.items():
         token = config.get("bot_token", "")

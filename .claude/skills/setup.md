@@ -1,40 +1,46 @@
 ---
 name: setup
-description: TeleClaw initial setup — create config.yaml, install dependencies, and start the service.
+description: TeleClaw first-time setup — install dependencies, create config.yaml, test the bot, and start the service.
 ---
 
-# /setup — TeleClaw Initial Setup
+# /setup — TeleClaw first-time setup
 
-Guide the user through setting up TeleClaw step by step.
+Walk the user through setting up TeleClaw one step at a time. Wait for their answer before moving on.
 
-## Step 1: Check Prerequisites
+## Step 1: Check prerequisites
 
-Verify these are available:
-- `python --version` → 3.11+
-- `claude --version` → Claude Code CLI installed
+Run:
+- `python --version` → needs 3.11+
+- `claude --version` → Claude Code must be installed and logged in
 
-If anything is missing, tell the user how to install it and stop.
+If either is missing, tell the user how to install it and stop.
 
-## Step 2: Install Dependencies
+## Step 2: Install
+
+From the repository root:
 
 ```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
 pip install -e .
 ```
 
 ## Step 3: Create config.yaml
 
-Ask the user for:
-1. **Telegram Bot Token** — "Create a bot via @BotFather on Telegram and paste the token"
-2. **Chat ID** — "Send a message to your bot, then visit `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your chat ID"
-3. **Project path** — "Which directory should Claude Code work in?"
-4. **Project name** — "Give this project a short name (e.g., MyApp)"
-5. **Language** — "en (English) or ko (Korean)?"
+If `config.yaml` already exists, show its project names and ask whether to add to it or start over. Never print bot tokens back to the user.
 
-Then generate `config.yaml`:
+Ask for:
+1. **Bot token**: "Create a bot with @BotFather on Telegram and paste its token."
+2. **Your Telegram user ID**: "Message @userinfobot on Telegram and paste the ID it replies with."
+3. **Project folder**: "Which folder should Claude Code work in?" Check that it exists.
+4. **Project name**: "A short name for this project, e.g. MyApp."
+5. **Language**: "en (English), ko (Korean), az (Azerbaijani), ru (Russian) or tr (Turkish)?"
+
+Copy `config.example.yaml` to `config.yaml` and fill in the values:
 
 ```yaml
 lang: "{language}"
-chat_id: "{chat_id}"
+chat_id: "{user_id}"
 allowed_users: ""
 
 projects:
@@ -43,42 +49,41 @@ projects:
     bot_token: "{bot_token}"
 ```
 
-Write this to `config.yaml` in the teleclaw directory.
+## Step 4: Test the bot
 
-## Step 4: Verify Connection
-
-Test by sending a message via telegram_helper:
-```bash
-python telegram_helper.py text "TeleClaw setup complete!"
-```
-
-If it fails, ask the user to double-check the token and chat_id.
-
-## Step 5: Start
+From inside the project folder, so the helper picks that project's bot:
 
 ```bash
-teleclaw install
+python -m src.telegram_helper text "TeleClaw setup complete!"
 ```
 
-This registers TeleClaw as a system service and starts it immediately.
+This works from any folder because Step 2 installed the package; keep the venv active. If no message arrives, have the user check the token and user ID, and make sure they've pressed **Start** in the chat with their bot.
 
-## Step 6: Add More Projects (Optional)
+## Step 5: Start as a service
 
-Ask: "Do you want to add more projects? Each project gets its own Telegram bot."
+- **Linux / macOS:** `teleclaw install`
+- **Windows:** offer two options:
+  - `teleclaw install`: starts when the user logs in.
+  - `win-scripts\install_service_admin.ps1`, in an elevated PowerShell: starts at boot and keeps running after logout. Recommended for an always-on machine.
 
-If yes, repeat Step 3 for each project (new bot token + project path) and append to config.yaml.
+## Step 6: More projects (optional)
+
+Ask: "Add another project? Each one needs its own bot from @BotFather."
+
+For each, repeat the questions for token, folder and name, and add it under `projects:`. Restart the service afterwards (`win-scripts\restart.ps1` on Windows, or `teleclaw uninstall` + `teleclaw install`).
 
 ## Done
 
-Print summary:
-```
-TeleClaw is running!
+Show:
 
-Send a message to your Telegram bot to start using Claude Code remotely.
+```
+TeleClaw is running.
+
+Message your bot on Telegram to talk to Claude Code in that project.
 
 Useful commands:
-  /status          — check session health
-  /help            — all commands
-  teleclaw status  — service status
-  teleclaw logs    — view logs
+  /status          session health
+  /help            all commands
+  teleclaw status  service status
+  teleclaw logs    recent logs
 ```

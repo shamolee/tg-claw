@@ -1,4 +1,4 @@
-"""config.py 유닛 테스트 — auto-resume 설정, 프로젝트 설정."""
+"""config.py unit tests — auto-resume settings, project settings."""
 import sys
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
 
@@ -9,12 +9,12 @@ from config import (
 
 
 def test_auto_resume_mode_is_resume():
-    """기본 모드가 resume인지 확인"""
+    """Default mode is resume"""
     assert AUTO_RESUME_MODE == "resume"
 
 
 def test_auto_resume_prompts_all_modes():
-    """resume/check/none 프롬프트가 모두 정의되어 있는지"""
+    """resume/check/none prompts are all defined"""
     assert "resume" in AUTO_RESUME_PROMPTS
     assert "check" in AUTO_RESUME_PROMPTS
     assert "none" in AUTO_RESUME_PROMPTS
@@ -28,7 +28,7 @@ def test_auto_resume_enabled():
 
 
 def test_projects_defined():
-    """프로젝트 1개 이상 정의"""
+    """At least one project defined"""
     assert len(PROJECTS) >= 1
     for name, config in PROJECTS.items():
         assert "bot_token" in config

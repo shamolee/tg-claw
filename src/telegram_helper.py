@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""텔레그램으로 텍스트/이미지/파일 전송 CLI.
+"""CLI for sending text/images/files to Telegram.
 
 Usage:
     python -m src.telegram_helper text  <message>
@@ -14,7 +14,7 @@ from . import telegram_api as tg
 
 
 def _match_project():
-    """cwd 기반으로 PROJECTS에서 bot_token 매칭."""
+    """Find the bot_token in PROJECTS matching the current cwd."""
     cwd = os.getcwd().replace("\\", "/").rstrip("/")
     for name, cfg in PROJECTS.items():
         proj_cwd = cfg.get("cwd", "").replace("\\", "/").rstrip("/")

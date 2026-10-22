@@ -1,13 +1,13 @@
 .PHONY: run run-debug dev test lint clean
 
-# 실행
+# Run
 run:
 	python -m src
 
 run-debug:
 	TELECLAW_DEBUG=1 python -m src
 
-# 개발
+# Development
 dev:
 	pip install -e ".[dev]"
 

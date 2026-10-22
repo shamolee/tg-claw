@@ -1,4 +1,4 @@
-"""telegram_api.py 유닛 테스트 — HTML 변환, URL 제거, 테이블 변환, 메시지 분할."""
+"""telegram_api.py unit tests — HTML conversion, URL stripping, table conversion, message splitting."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,13 +14,13 @@ from src.telegram_api import (
 # ---------------------------------------------------------------------------
 
 def test_clean_text_control_chars():
-    """제어 문자 제거"""
+    """Strip control characters"""
     assert _clean_text("hello\x00world") == "helloworld"
     assert _clean_text("test\x07\x08text") == "testtext"
 
 
 def test_clean_text_blank_lines():
-    """연속 빈 줄 → 2줄로"""
+    """Consecutive blank lines → 2 lines"""
     assert _clean_text("a\n\n\n\nb") == "a\n\nb"
 
 
@@ -30,14 +30,14 @@ def test_clean_text_replacement_char():
 
 
 def test_clean_text_bare_url():
-    """bare HTTP/HTTPS URL 제거"""
+    """Strip bare HTTP/HTTPS URLs"""
     assert "https://" not in _clean_text("오류: https://admob.googleapis.com/v1/accounts 발생")
     assert "http://" not in _clean_text("참고: http://old-site.com/page 입니다")
     assert "오류:" in _clean_text("오류: https://admob.googleapis.com/v1/accounts 발생")
 
 
 def test_clean_text_admob_error():
-    """실제 AdMob API 에러 메시지에서 URL 제거"""
+    """Strip URL from a real AdMob API error message"""
     text = ('오류: <HttpError 400 when requesting '
             'https://admob.googleapis.com/v1/accounts/pub-2452567123791504/'
             'networkReport:generate?alt=json returned "Request contains an '
@@ -49,13 +49,13 @@ def test_clean_text_admob_error():
 
 
 def test_clean_text_markdown_link():
-    """마크다운 링크 → 텍스트만 유지"""
+    """Markdown link → keep text only"""
     assert "구글" in _clean_text("[구글](https://google.com)은 검색엔진")
     assert "https://" not in _clean_text("[구글](https://google.com)은 검색엔진")
 
 
 def test_clean_text_multiple_urls():
-    """여러 URL 전부 제거"""
+    """Strip all of multiple URLs"""
     text = "참고: https://a.com 그리고 https://b.com/path?q=1 참조"
     result = _clean_text(text)
     assert "https://" not in result
@@ -64,12 +64,12 @@ def test_clean_text_multiple_urls():
 
 
 def test_clean_text_url_only():
-    """URL만 있는 텍스트 → 빈 문자열"""
+    """URL-only text → empty string"""
     assert _clean_text("https://example.com/very/long/path") == ""
 
 
 def test_clean_text_android_doc_url():
-    """Android 개발 문서 URL 제거"""
+    """Strip Android developer docs URL"""
     text = "자세한 내용: https://developer.android.com/topic/performance/anrs/diagnose-and-fix-anrs#nativepollonce"
     result = _clean_text(text)
     assert "https://" not in result
@@ -77,7 +77,7 @@ def test_clean_text_android_doc_url():
 
 
 def test_clean_text_mixed_code_and_url():
-    """코드 + URL 혼합"""
+    """Mixed code + URL"""
     text = """크래시:
 android.view.ViewRootImpl$CalledFromWrongThreadException
 참고: https://developer.android.com/guide
@@ -89,7 +89,7 @@ android.view.ViewRootImpl$CalledFromWrongThreadException
 
 
 def test_clean_text_no_url():
-    """URL 없는 텍스트는 그대로"""
+    """Text without URLs is unchanged"""
     assert _clean_text("일반 텍스트입니다.") == "일반 텍스트입니다."
 
 
@@ -128,11 +128,11 @@ def test_no_table():
 
 
 # ---------------------------------------------------------------------------
-# _md_to_telegram_html — URL 제거
+# _md_to_telegram_html — URL stripping
 # ---------------------------------------------------------------------------
 
 def test_html_url_removed():
-    """bare URL이 제거되는지 확인"""
+    """Bare URLs are stripped"""
     text = "참고: https://example.com/path?q=1 여기를 보세요"
     result = _md_to_telegram_html(text)
     assert "https://" not in result
@@ -140,7 +140,7 @@ def test_html_url_removed():
 
 
 def test_html_link_text_kept():
-    """[text](url) → text만 남김"""
+    """[text](url) → keep only text"""
     text = "[구글](https://google.com)에서 검색"
     result = _md_to_telegram_html(text)
     assert "구글" in result
@@ -148,14 +148,14 @@ def test_html_link_text_kept():
 
 
 def test_html_url_in_code_preserved():
-    """코드블록 안의 URL은 유지"""
+    """URLs inside code blocks are kept"""
     text = "```\nhttps://api.example.com/v1\n```"
     result = _md_to_telegram_html(text)
     assert "example.com" in result
 
 
 # ---------------------------------------------------------------------------
-# _md_to_telegram_html — 마크다운 변환
+# _md_to_telegram_html — markdown conversion
 # ---------------------------------------------------------------------------
 
 def test_html_bold():
@@ -196,15 +196,15 @@ def test_html_blockquote():
 
 
 def test_html_table_converted():
-    """테이블이 리스트로 변환되는지"""
+    """Tables are converted to lists"""
     text = "| Key | Value |\n|---|---|\n| A | 1 |"
     result = _md_to_telegram_html(text)
-    assert "|" not in result.replace("</", "")  # HTML 태그 제외
+    assert "|" not in result.replace("</", "")  # ignoring HTML tags
     assert "A: 1" in result
 
 
 # ---------------------------------------------------------------------------
-# _md_to_telegram_html — 엣지 케이스
+# _md_to_telegram_html — edge cases
 # ---------------------------------------------------------------------------
 
 def test_html_empty():
@@ -232,21 +232,21 @@ def test_html_multiple_urls():
 # ---------------------------------------------------------------------------
 
 def test_split_short():
-    """짧은 메시지는 분할 안 함"""
+    """Short messages are not split"""
     assert _split_message("짧은 텍스트") == ["짧은 텍스트"]
 
 
 def test_split_long():
-    """긴 메시지 분할 — 페이지 표시 '(N/M)' 포함해서 4096 이내"""
+    """Long message split — within 4096 including the '(N/M)' page marker"""
     long_text = "테스트 문장입니다.\n\n" * 500
     chunks = _split_message(long_text, max_len=4000)
     assert len(chunks) > 1
     for chunk in chunks:
-        assert len(chunk) <= 4096  # max_len + 페이지 표시 여유
+        assert len(chunk) <= 4096  # max_len + room for page marker
 
 
 def test_split_preserves_content():
-    """분할 후 합치면 원본과 (대략) 일치"""
+    """Joined chunks (roughly) match the original"""
     text = "문단 1\n\n문단 2\n\n문단 3"
     chunks = _split_message(text, max_len=20)
     joined = "".join(chunks)

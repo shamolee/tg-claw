@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-TeleClaw 전체 Smoke Test (#1~#45) — 비파괴 검증.
-실행: python tests/test_smoke_all.py
+TeleClaw full smoke test (#1-#45) — non-destructive checks.
+Run: python tests/test_smoke_all.py
 """
 
 import os
@@ -71,7 +71,7 @@ def read_commands_code():
 
 
 # ==========================================================
-# 코드 / 로그 / 상태 로드
+# Load code / logs / status
 # ==========================================================
 sv_code = read_code()
 wp_code = read_wrapper_code()
@@ -82,219 +82,219 @@ status = read_json(STATUS_FILE)
 sessions = status["sessions"]
 
 # ==========================================================
-# #1: 프로세스 상태
+# #1: Process state
 # ==========================================================
-print("\n#1: 프로세스 상태")
-test("teleclaw_status.json 존재", os.path.exists(STATUS_FILE))
-test("PID 기록", status.get("pid", 0) > 0, f"pid={status.get('pid')}")
-# tasklist로 프로세스 확인
+print("\n#1: Process state")
+test("teleclaw_status.json exists", os.path.exists(STATUS_FILE))
+test("PID recorded", status.get("pid", 0) > 0, f"pid={status.get('pid')}")
+# Check the process with tasklist
 try:
     r = subprocess.run(["tasklist", "/FI", f"PID eq {status['pid']}", "/NH"],
                        capture_output=True, text=True, timeout=5)
-    test("teleclaw 프로세스 존재", str(status["pid"]) in r.stdout)
+    test("teleclaw process exists", str(status["pid"]) in r.stdout)
 except Exception as e:
-    skip("teleclaw 프로세스 존재", str(e))
-test(f"{len(sessions)}개 세션 존재", len(sessions) >= 3, f"count={len(sessions)}")
+    skip("teleclaw process exists", str(e))
+test(f"{len(sessions)} sessions exist", len(sessions) >= 3, f"count={len(sessions)}")
 for name, s in sessions.items():
     test(f"{name} connected=true", s["connected"])
 
 # ==========================================================
-# #2: 메시지 처리 (로그 기반)
+# #2: Message handling (log based)
 # ==========================================================
-print("\n#2: 메시지 처리")
-test("'메시지 수신' 로그 존재", "메시지 수신:" in log_content)
-test("'메시지 처리 시작' 로그 존재", "메시지 처리 시작:" in log_content)
-test("'처리 완료' 로그 존재", "처리 완료" in log_content)
-recv_count = log_content.count("메시지 수신:")
-proc_count = log_content.count("메시지 처리 시작:")
-done_count = log_content.count("처리 완료")
-test("수신-처리-완료 흐름 정상", recv_count > 0 and proc_count > 0 and done_count > 0,
-     f"수신={recv_count}, 처리={proc_count}, 완료={done_count}")
+print("\n#2: Message handling")
+test("'message received' log exists", "message received:" in log_content)
+test("'processing message' log exists", "processing message:" in log_content)
+test("'done processing' log exists", "done processing" in log_content)
+recv_count = log_content.count("message received:")
+proc_count = log_content.count("processing message:")
+done_count = log_content.count("done processing")
+test("receive-process-done flow OK", recv_count > 0 and proc_count > 0 and done_count > 0,
+     f"received={recv_count}, processing={proc_count}, done={done_count}")
 
 # ==========================================================
-# #3: 명령어 동작
+# #3: Commands
 # ==========================================================
-print("\n#3: 명령어 동작")
-test("handle_command 함수 존재", "def handle_command" in cmd_code)
+print("\n#3: Commands")
+test("handle_command function exists", "def handle_command" in cmd_code)
 for cmd in ["/status", "/usage", "/restart", "/reset", "/log", "/help"]:
-    test(f"명령어 {cmd} 핸들러", f'"{cmd}"' in cmd_code or f"'{cmd}'" in cmd_code or cmd.lstrip("/") in cmd_code)
+    test(f"command {cmd} handler", f'"{cmd}"' in cmd_code or f"'{cmd}'" in cmd_code or cmd.lstrip("/") in cmd_code)
 
 # ==========================================================
-# #4: 세션 재시작
+# #4: Session restart
 # ==========================================================
-print("\n#4: 세션 재시작")
-test("_restart_session 메서드 존재", "async def _restart_session" in sv_code)
-test("restart_request flag 감지 로직", "restart_request_" in sv_code)
-# 로그에서 재시작 이력 확인
-restart_logs = [l for l in log_content.split("\n") if "재시작 시도" in l]
+print("\n#4: Session restart")
+test("_restart_session method exists", "async def _restart_session" in sv_code)
+test("restart_request flag detection", "restart_request_" in sv_code)
+# Check restart history in the log
+restart_logs = [l for l in log_content.split("\n") if "restart attempt" in l]
 if restart_logs:
-    test(f"재시작 이력 {len(restart_logs)}건", True)
+    test(f"restart history: {len(restart_logs)}", True)
 else:
-    skip("재시작 이력", "현재 로그에 없음")
+    skip("restart history", "not in current log")
 
 # ==========================================================
-# #5: TeleClaw 자체 재시작
+# #5: TeleClaw self-restart
 # ==========================================================
-print("\n#5: TeleClaw 자체 재시작")
-test("restart_request_supervisor.flag 감지", "restart_request_supervisor" in sv_code)
-test("os._exit(0) 호출로 wrapper 재시작 유도", "os._exit(0)" in sv_code)
-# wrapper 로그에서 재시작 이력
-wrapper_restarts = wrapper_log.count("teleclaw 시작")
-test(f"wrapper 재시작 이력 {wrapper_restarts}건", wrapper_restarts > 0)
+print("\n#5: TeleClaw self-restart")
+test("restart_request_supervisor.flag detection", "restart_request_supervisor" in sv_code)
+test("os._exit(0) triggers wrapper restart", "os._exit(0)" in sv_code)
+# Restart history in the wrapper log
+wrapper_restarts = wrapper_log.count("teleclaw starting")
+test(f"wrapper restart history: {wrapper_restarts}", wrapper_restarts > 0)
 
 # ==========================================================
-# #6: DEAD 세션 자동 복구
+# #6: DEAD session auto-recovery
 # ==========================================================
-print("\n#6: DEAD 세션 자동 복구")
-test("_assess_health 메서드 존재", "def _assess_health" in sv_code)
-test("DEAD 판정 로직", '"DEAD"' in sv_code)
-test("health_check_loop에서 DEAD 감지 → 재시작", "status == \"DEAD\"" in sv_code or 'status == "DEAD"' in sv_code)
-test("MAX_RESTARTS_PER_WINDOW 제한", "MAX_RESTARTS_PER_WINDOW" in sv_code)
+print("\n#6: DEAD session auto-recovery")
+test("_assess_health method exists", "def _assess_health" in sv_code)
+test("DEAD detection logic", '"DEAD"' in sv_code)
+test("health_check_loop detects DEAD → restart", "status == \"DEAD\"" in sv_code or 'status == "DEAD"' in sv_code)
+test("MAX_RESTARTS_PER_WINDOW limit", "MAX_RESTARTS_PER_WINDOW" in sv_code)
 
 # ==========================================================
 # #7: SDK query hard timeout
 # ==========================================================
 print("\n#7: SDK query hard timeout")
-test("query 타임아웃 체크 (600초)", "600" in sv_code and "강제 중단" in sv_code)
-test("10분 무응답 break", "10분간 메시지 없음" in sv_code)
+test("query timeout check (600s)", "600" in sv_code and "force stop" in sv_code)
+test("break after 10 min without messages", "no messages for 10 min" in sv_code)
 
 # ==========================================================
-# #8: 재시작 시 메시지 유실 방지
+# #8: No message loss on restart
 # ==========================================================
-print("\n#8: 재시작 시 메시지 유실 방지")
-test("offset 저장 로직 (_save_offset)", "_save_offset" in sv_code)
-test("offset 복원 로직 (_load_offset)", "_load_offset" in sv_code or "offset 복원" in sv_code)
-# offset 파일 존재 확인
+print("\n#8: No message loss on restart")
+test("offset save logic (_save_offset)", "_save_offset" in sv_code)
+test("offset restore logic (_load_offset)", "_load_offset" in sv_code or "offset restored" in sv_code)
+# Check that offset files exist
 offset_files = [f for f in os.listdir(DATA_DIR) if f.startswith("last_offset_")]
-test(f"offset 파일 {len(offset_files)}개 존재", len(offset_files) > 0)
-# 로그에서 offset 복원 확인
-if "offset 복원" in log_content:
-    test("offset 복원 로그", True)
+test(f"{len(offset_files)} offset files exist", len(offset_files) > 0)
+# Check offset restore in the log
+if "offset restored" in log_content:
+    test("offset restore log", True)
 else:
-    skip("offset 복원 로그", "현재 로그에 없음 (재시작 후 로테이션)")
+    skip("offset restore log", "not in current log (rotated after restart)")
 
 # ==========================================================
-# #9: busy 중 새 메시지 큐잉
+# #9: Queue new messages while busy
 # ==========================================================
-print("\n#9: busy 중 새 메시지 큐잉")
-test("asyncio.Queue 사용", "message_queue" in sv_code)
-test("busy 상태에서 대기건수 표시", "처리 중, 대기" in sv_code)
+print("\n#9: Queue new messages while busy")
+test("uses asyncio.Queue", "message_queue" in sv_code)
+test("shows queue count while busy", 'msg("ack_busy"' in sv_code)
 
 # ==========================================================
-# #10: pause 모드
+# #10: pause mode
 # ==========================================================
 # ==========================================================
-# #10: flag 이름 일관성
+# #10: flag name consistency
 # ==========================================================
-print("\n#10: flag 이름 일관성")
-test("supervisor flag와 세션 flag 구분", "restart_request_supervisor" in sv_code and "restart_request_{name}" in sv_code)
+print("\n#10: flag name consistency")
+test("supervisor flag vs session flag", "restart_request_supervisor" in sv_code and "restart_request_{name}" in sv_code)
 
 # ==========================================================
-# #12: 병렬 메시지
+# #12: Parallel messages
 # ==========================================================
-print("\n#12: 병렬 메시지")
-test("세션별 독립 폴링 루프", "_bot_poll_loop" in sv_code)
-test("세션별 독립 처리 루프", "_session_loop" in sv_code)
-# 로그에서 여러 세션 동시 처리 확인
+print("\n#12: Parallel messages")
+test("independent poll loop per session", "_bot_poll_loop" in sv_code)
+test("independent processing loop per session", "_session_loop" in sv_code)
+# Check in the log that multiple sessions processed messages
 session_names_in_log = set()
 for name in sessions:
-    if f"{name}: 메시지 처리 시작" in log_content:
+    if f"{name}: processing message" in log_content:
         session_names_in_log.add(name)
-test(f"다중 세션 처리 확인 ({len(session_names_in_log)}개)", len(session_names_in_log) >= 1)
+test(f"multi-session processing ({len(session_names_in_log)})", len(session_names_in_log) >= 1)
 
 # ==========================================================
-# #13: /status 고스트 상태
+# #13: /status ghost state
 # ==========================================================
-print("\n#13: /status 고스트 상태")
-test("connected 상태와 실제 client 체크", "state.client is None" in sv_code or "not state.client" in sv_code)
-test("health check에서 client=None → DEAD", "client is None" in sv_code)
+print("\n#13: /status ghost state")
+test("connected state checks the actual client", "state.client is None" in sv_code or "not state.client" in sv_code)
+test("health check: client=None → DEAD", "client is None" in sv_code)
 
 # ==========================================================
-# #14: 세션 미연결 시 재시도
+# #14: Retry when session not connected
 # ==========================================================
-print("\n#14: 세션 미연결 시 재시도")
-test("retry_conn 키 사용", "retry_conn" in sv_code)
-test("미연결 재시도 1회 제한", 'retry < 1' in sv_code)
-test("실패 시 텔레그램 알림", "세션 연결 실패, 메시지 처리 불가" in sv_code)
+print("\n#14: Retry when session not connected")
+test("uses retry_conn key", "retry_conn" in sv_code)
+test("not-connected retry limited to 1", 'retry < 1' in sv_code)
+test("Telegram notice on failure", 'msg("session_connect_fail"' in sv_code)
 
 # ==========================================================
-# #14-1: client=None 무한 재큐잉 방지
+# #14-1: Prevent endless requeue on client=None
 # ==========================================================
-print("\n#14-1: client=None 무한 재큐잉 방지")
-test("retry_noclient 키 사용", "retry_noclient" in sv_code)
-test("10회 제한 (재시작 대기 충분)", "retry < 10" in sv_code)
-test("소진 시 드롭 + 알림", "재시도 소진" in sv_code)
+print("\n#14-1: Prevent endless requeue on client=None")
+test("uses retry_noclient key", "retry_noclient" in sv_code)
+test("limited to 10 (enough to wait for restart)", "retry < 10" in sv_code)
+test("drop + notice when exhausted", "retries exhausted" in sv_code)
 
 # ==========================================================
-# #15: query() 타임아웃 재시도
+# #15: query() timeout retry
 # ==========================================================
-print("\n#15: query() 타임아웃 재시도")
-test("retry_timeout 키 사용", "retry_timeout" in sv_code)
-test("2회 제한", "retry < 2" in sv_code)
-test("타임아웃 재시도 큐잉 로그", "타임아웃 재시도 큐잉" in sv_code)
+print("\n#15: query() timeout retry")
+test("uses retry_timeout key", "retry_timeout" in sv_code)
+test("limited to 2", "retry < 2" in sv_code)
+test("timeout retry queueing log", "queueing timeout retry" in sv_code)
 
 # ==========================================================
-# #16: 빈 응답 알림
+# #16: Empty response notice
 # ==========================================================
-print("\n#16: 빈 응답 알림")
-test("빈 응답 감지", "빈 응답" in sv_code)
+print("\n#16: Empty response notice")
+test("empty response detected", 'msg("ask_empty")' in sv_code)
 
 # ==========================================================
-# #17: 처리 중 예외 재시도
+# #17: Retry on exception during processing
 # ==========================================================
-print("\n#17: 처리 중 예외 재시도")
-test("retry_error 키 사용", "retry_error" in sv_code)
-test("에러 재시도 큐잉", "에러 재시도 큐잉" in sv_code)
-test("연속 에러 카운트 (error_count)", "state.error_count += 1" in sv_code)
+print("\n#17: Retry on exception during processing")
+test("uses retry_error key", "retry_error" in sv_code)
+test("error retry queueing", "queueing error retry" in sv_code)
+test("consecutive error count (error_count)", "state.error_count += 1" in sv_code)
 
 # ==========================================================
-# #18: 재시도 시 메시지 순서 보존
+# #18: Message order preserved on retry
 # ==========================================================
-print("\n#18: 재시도 시 메시지 순서 보존")
+print("\n#18: Message order preserved on retry")
 session_code = read_text(os.path.join(TELECLAW_DIR, "src", "session.py"))
-test("FIFO 큐 (asyncio.Queue)", "asyncio.Queue" in session_code)
-test("재시도 시 put으로 큐 뒤에 추가", "message_queue.put(msg_data)" in sv_code)
+test("FIFO queue (asyncio.Queue)", "asyncio.Queue" in session_code)
+test("retry re-appends with put", "message_queue.put(msg_data)" in sv_code)
 
 # ==========================================================
-# #19: wrapper 무한 크래시 시 알림 반복
+# #19: Repeated notices on endless wrapper crashes
 # ==========================================================
-print("\n#19: wrapper 무한 크래시 시 알림 반복")
-test("5/10/20/50회 알림", "fail_count in (5, 10, 20, 50)" in wp_code)
-test("50회 이후 주기 알림", "fail_count % 50 == 0" in wp_code)
+print("\n#19: Repeated notices on endless wrapper crashes")
+test("notices at 5/10/20/50", "fail_count in (5, 10, 20, 50)" in wp_code)
+test("periodic notice after 50", "fail_count % 50 == 0" in wp_code)
 
 # ==========================================================
-# #20: busy 중 supervisor 재시작 graceful shutdown
+# #20: Graceful shutdown on supervisor restart while busy
 # ==========================================================
-print("\n#20: busy 중 supervisor 재시작 graceful shutdown")
-test("busy 세션 대기 로직", "busy 세션 대기" in sv_code)
-test("최대 60초 대기", "waited < 60" in sv_code)
-test("force 시 대기 스킵", "not force" in sv_code)
+print("\n#20: Graceful shutdown on supervisor restart while busy")
+test("waits for busy sessions", "waiting for busy sessions" in sv_code)
+test("waits up to 60s", "waited < 60" in sv_code)
+test("skips wait when forced", "not force" in sv_code)
 
 # ==========================================================
-# #21: 폴링 에러 메시지 상세화
+# #21: Detailed polling error messages
 # ==========================================================
-print("\n#21: 폴링 에러 메시지 상세화")
-test("repr(e) 사용", "repr(e)" in sv_code)
-test("traceback 포함", "traceback" in sv_code)
+print("\n#21: Detailed polling error messages")
+test("uses repr(e)", "repr(e)" in sv_code)
+test("includes traceback", "traceback" in sv_code)
 
 # ==========================================================
-# #22: 세션 병렬 연결
+# #22: Parallel session connect
 # ==========================================================
-print("\n#22: 세션 병렬 연결")
-test("asyncio.gather로 병렬 연결", "asyncio.gather" in sv_code)
+print("\n#22: Parallel session connect")
+test("parallel connect with asyncio.gather", "asyncio.gather" in sv_code)
 test("return_exceptions=True", "return_exceptions=True" in sv_code)
-# 로그에서 연결 시간 분석 — "TeleClaw 시작" 이후의 연결만 추출
+# Analyze connect times in the log — only connects after the last "TeleClaw starting"
 lines = log_content.split("\n")
 last_start_idx = -1
 for i, l in enumerate(lines):
-    if "TeleClaw 시작" in l:
+    if "TeleClaw starting" in l:
         last_start_idx = i
 if last_start_idx >= 0:
     recent_lines = lines[last_start_idx:]
-    connect_logs = [l for l in recent_lines if "SDK 세션 연결 완료" in l]
+    connect_logs = [l for l in recent_lines if "SDK session connected" in l]
     if len(connect_logs) >= 3:
         times = []
-        for l in connect_logs[:3]:  # 해당 시작의 처음 3개
+        for l in connect_logs[:3]:  # the first 3 after that start
             t = l.split("]")[0].lstrip("[").strip()
             try:
                 ts = time.strptime(t, "%Y-%m-%d %H:%M:%S")
@@ -303,76 +303,76 @@ if last_start_idx >= 0:
                 pass
         if len(times) >= 2:
             spread = max(times) - min(times)
-            test(f"병렬 연결 시간 차이 {spread:.0f}초 (< 15초)", spread < 15,
-                 f"spread={spread:.0f}초")
+            test(f"parallel connect spread {spread:.0f}s (< 15s)", spread < 15,
+                 f"spread={spread:.0f}s")
 
 # ==========================================================
-# #44: client 교체 감지 (receive_messages 중단)
+# #44: Client replacement detection (stop receive_messages)
 # ==========================================================
-print("\n#44: client 교체 감지")
-test("state.client is not client 체크", "state.client is not client" in sv_code)
-test("교체 감지 시 break", "client 교체 감지" in sv_code)
-# 로그에서 실제 발동 확인
-swap_logs = [l for l in log_content.split("\n") if "client 교체 감지" in l]
-test(f"client 교체 감지 로그 {len(swap_logs)}건", True)
+print("\n#44: Client replacement detection")
+test("state.client is not client check", "state.client is not client" in sv_code)
+test("break on replacement", "client replacement detected" in sv_code)
+# Check in the log whether it actually fired
+swap_logs = [l for l in log_content.split("\n") if "client replacement detected" in l]
+test(f"client replacement logs: {len(swap_logs)}", True)
 if swap_logs:
-    print(f"    최근: {swap_logs[-1].strip()}")
+    print(f"    latest: {swap_logs[-1].strip()}")
 
 # ==========================================================
-# #45: disconnect 실패 시 프로세스 강제 kill
+# #45: Force-kill the process when disconnect fails
 # ==========================================================
-print("\n#45: disconnect 실패 시 프로세스 강제 terminate")
-test("_transport._process 경로", '_transport' in sv_code and '_process' in sv_code)
-test("proc.terminate() 호출", "proc.terminate()" in sv_code)
-test("proc.returncode is None 가드", "proc.returncode is None" in sv_code)
-# 로그에서 강제 terminate 발동 확인
-terminate_logs = [l for l in log_content.split("\n") if "강제 terminate" in l]
-test(f"강제 terminate 로그 {len(terminate_logs)}건", len(terminate_logs) >= 0)
+print("\n#45: Force-terminate the process when disconnect fails")
+test("_transport._process path", '_transport' in sv_code and '_process' in sv_code)
+test("calls proc.terminate()", "proc.terminate()" in sv_code)
+test("proc.returncode is None guard", "proc.returncode is None" in sv_code)
+# Check in the log whether force terminate fired
+terminate_logs = [l for l in log_content.split("\n") if "terminating process (pid=" in l]
+test(f"force terminate logs: {len(terminate_logs)}", len(terminate_logs) >= 0)
 if terminate_logs:
-    print(f"    최근: {terminate_logs[-1].strip()}")
+    print(f"    latest: {terminate_logs[-1].strip()}")
 
 # ==========================================================
-# #23: disconnect 에러 시 리소스 정리
+# #23: Resource cleanup on disconnect error
 # ==========================================================
-print("\n#23: disconnect 에러 시 프로세스 강제 종료")
-test("_safe_disconnect 메서드", "async def _safe_disconnect" in sv_code)
-test("_transport._process 접근", "getattr(transport" in sv_code)
-test("terminate() 후 pid 로그", "강제 terminate" in sv_code)
-# 로그에서 disconnect 에러 후 terminate 확인
-disc_errors = [l for l in log_content.split("\n") if "disconnect 에러" in l]
-disc_terminates = [l for l in log_content.split("\n") if "강제 terminate" in l]
-test(f"disconnect 에러 {len(disc_errors)}건", True)
+print("\n#23: Force-kill the process on disconnect error")
+test("_safe_disconnect method", "async def _safe_disconnect" in sv_code)
+test("_transport._process access", "getattr(transport" in sv_code)
+test("pid logged after terminate()", "terminating process (pid=" in sv_code)
+# Check in the log that terminate followed a disconnect error
+disc_errors = [l for l in log_content.split("\n") if "disconnect error" in l]
+disc_terminates = [l for l in log_content.split("\n") if "terminating process (pid=" in l]
+test(f"disconnect errors: {len(disc_errors)}", True)
 if disc_errors and disc_terminates:
-    test("에러 후 terminate 실행됨", len(disc_terminates) > 0)
+    test("terminate ran after the error", len(disc_terminates) > 0)
 
 # ==========================================================
-# #24: wrapper에서 supervisor crash stderr 캡처
+# #24: Wrapper captures supervisor crash stderr
 # ==========================================================
-print("\n#24: wrapper crash stderr 캡처 (파일 리다이렉트)")
-test("메인 실행에 capture_output 미사용", "stderr=sf" in wp_code)
-test("stderr 파일 리다이렉트", "teleclaw_stderr.log" in wp_code)
-test("stderr 로그 기록", "teleclaw stderr:" in wp_code)
-test("stderr 텔레그램 전송", "크래시 stderr" in wp_code)
-# wrapper 로그에서 실제 stderr 캡처 확인
+print("\n#24: Wrapper crash stderr capture (file redirect)")
+test("main run doesn't use capture_output", "stderr=sf" in wp_code)
+test("stderr redirected to file", "teleclaw_stderr.log" in wp_code)
+test("stderr logged", "teleclaw stderr:" in wp_code)
+test("stderr sent to Telegram", 'msg("daemon_crash_stderr"' in wp_code)
+# Check actual stderr captures in the wrapper log
 stderr_logs = [l for l in wrapper_log.split("\n") if "teleclaw stderr:" in l]
-test(f"wrapper stderr 캡처 이력 {len(stderr_logs)}건", True)
+test(f"wrapper stderr captures: {len(stderr_logs)}", True)
 if stderr_logs:
-    print(f"    최근: {stderr_logs[-1].strip()[:100]}")
+    print(f"    latest: {stderr_logs[-1].strip()[:100]}")
 
 # ==========================================================
-# #46: wrapper 재시작 blocking 방지
+# #46: Prevent wrapper restart blocking
 # ==========================================================
-print("\n#46: wrapper 재시작 blocking 방지")
-test("stderr 파일 리다이렉트 (stdout 캡처 안 함)", "stderr=sf" in wp_code)
-test("메인 실행 stdout 비캡처 (blocking 방지)", "stderr=sf" in wp_code)
-# wrapper 로그에서 재시작 즉시성 확인 — "teleclaw 종료" 후 "teleclaw 시작"까지 시간 차이
+print("\n#46: Prevent wrapper restart blocking")
+test("stderr redirected to file (stdout not captured)", "stderr=sf" in wp_code)
+test("main run stdout not captured (prevents blocking)", "stderr=sf" in wp_code)
+# Check restart latency in the wrapper log — time from "teleclaw exited" to "teleclaw starting"
 wp_lines = wrapper_log.split("\n")
 restart_pairs = []
 for i, l in enumerate(wp_lines):
-    if "teleclaw 종료" in l and "exit_code=0" in l:
-        # 다음 "teleclaw 시작" 찾기
+    if "teleclaw exited" in l and "exit_code=0" in l:
+        # find the next "teleclaw starting"
         for j in range(i+1, min(i+5, len(wp_lines))):
-            if "teleclaw 시작" in wp_lines[j]:
+            if "teleclaw starting" in wp_lines[j]:
                 try:
                     t1 = wp_lines[i].split("]")[0].lstrip("[").strip()
                     t2 = wp_lines[j].split("]")[0].lstrip("[").strip()
@@ -385,267 +385,267 @@ for i, l in enumerate(wp_lines):
                 break
 if restart_pairs:
     last_delay = restart_pairs[-1]
-    test(f"마지막 재시작 지연 {last_delay:.0f}초 (< 30초)", last_delay < 30,
-         f"delay={last_delay:.0f}초")
+    test(f"last restart delay {last_delay:.0f}s (< 30s)", last_delay < 30,
+         f"delay={last_delay:.0f}s")
 else:
-    skip("재시작 지연 측정", "정상 종료 후 재시작 이력 없음")
+    skip("restart delay measurement", "no restart after a clean exit")
 
 # ==========================================================
-# #51: auto-resume ON/OFF 제어
+# #51: auto-resume ON/OFF control
 # ==========================================================
-print("\n#51: auto-resume ON/OFF 제어")
+print("\n#51: auto-resume ON/OFF control")
 cfg_code = read_text(os.path.join(TELECLAW_DIR, "src", "config.py"))
 cmd_code = read_text(os.path.join(TELECLAW_DIR, "src", "commands.py"))
-test("전역 설정 AUTO_RESUME_ENABLED", "AUTO_RESUME_ENABLED" in cfg_code)
-test("supervisor에서 import", "AUTO_RESUME_ENABLED" in sv_code)
-test("noresume 파라미터", "no_resume" in sv_code)
-test("flag 파싱에 noresume", "noresume" in sv_code)
-test("_restart_session에 auto-resume 로직", "AUTO_RESUME_ENABLED and not no_resume" in sv_code)
-test("STUCK reason → was_busy 강제", '"STUCK" in reason' in sv_code)
-test("/restart noresume 명령어", "noresume" in cmd_code)
-test("프롬프트 config 기반", "AUTO_RESUME_PROMPTS" in sv_code)
-# 로그에서 auto-resume 동작 확인
-resume_logs = [l for l in log_content.split("\n") if "자동 재개" in l and "스킵" not in l]
-skip_logs = [l for l in log_content.split("\n") if "자동 재개 스킵" in l or "대기 상태 → 자동 재개" in l]
+test("global setting AUTO_RESUME_ENABLED", "AUTO_RESUME_ENABLED" in cfg_code)
+test("imported in supervisor", "AUTO_RESUME_ENABLED" in sv_code)
+test("noresume parameter", "no_resume" in sv_code)
+test("noresume in flag parsing", "noresume" in sv_code)
+test("auto-resume logic in _restart_session", "AUTO_RESUME_ENABLED and not no_resume" in sv_code)
+test("STUCK reason → force was_busy", '"STUCK" in reason' in sv_code)
+test("/restart noresume command", "noresume" in cmd_code)
+test("prompts come from config", "AUTO_RESUME_PROMPTS" in sv_code)
+# Check auto-resume behavior in the log
+resume_logs = [l for l in log_content.split("\n") if "auto-resume" in l and "skipping" not in l]
+skip_logs = [l for l in log_content.split("\n") if "skipping auto-resume" in l or "idle state → auto-resume" in l]
 if resume_logs:
-    test(f"자동 재개 실행 {len(resume_logs)}건", True)
+    test(f"auto-resume runs: {len(resume_logs)}", True)
 elif skip_logs:
-    test(f"자동 재개 스킵 {len(skip_logs)}건 (조건 미충족)", True)
+    test(f"auto-resume skips: {len(skip_logs)} (conditions not met)", True)
 else:
-    skip("자동 재개 로그", "현재 로그에 없음")
+    skip("auto-resume log", "not in current log")
 
 # ==========================================================
-# #52: auto-resume busy 상태 영속화
+# #52: auto-resume busy state persistence
 # ==========================================================
-print("\n#52: auto-resume busy 상태 영속화")
-test("session_ids에 was_busy 저장", 'entry["was_busy"]' in sv_code or '"was_busy"' in sv_code)
-test("_load_session_ids에서 was_busy 복원", "was_busy_before_restart = True" in sv_code)
-test("하위 호환 (문자열 session_id)", "isinstance(val, str)" in sv_code)
-test("os._exit 전 _save_session_ids", "_save_session_ids()" in sv_code and "os._exit" in sv_code)
-# session_ids.json 포맷 확인
+print("\n#52: auto-resume busy state persistence")
+test("was_busy saved in session_ids", 'entry["was_busy"]' in sv_code or '"was_busy"' in sv_code)
+test("_load_session_ids restores was_busy", "was_busy_before_restart = True" in sv_code)
+test("backward compat (string session_id)", "isinstance(val, str)" in sv_code)
+test("_save_session_ids before os._exit", "_save_session_ids()" in sv_code and "os._exit" in sv_code)
+# Check session_ids.json format
 try:
     with open(SESSION_IDS_FILE, "r") as f:
         sid_data = json.load(f)
-    # dict 형태 확인 (새 포맷)
+    # check dict form (new format)
     has_dict = any(isinstance(v, dict) for v in sid_data.values())
     if has_dict:
-        test("session_ids.json 새 포맷 (dict)", True)
+        test("session_ids.json new format (dict)", True)
     else:
-        skip("session_ids.json 새 포맷", "아직 이전 포맷 — 재시작 후 마이그레이션")
+        skip("session_ids.json new format", "still old format — migrated after restart")
 except Exception as e:
-    skip("session_ids.json 포맷", str(e))
-# 로그에서 busy 복원 확인
-busy_restore = [l for l in log_content.split("\n") if "busy 상태 복원" in l]
+    skip("session_ids.json format", str(e))
+# Check busy restore in the log
+busy_restore = [l for l in log_content.split("\n") if "busy state restored" in l]
 if busy_restore:
-    test(f"busy 상태 복원 이력 {len(busy_restore)}건", True)
-    print(f"    최근: {busy_restore[-1].strip()}")
+    test(f"busy state restores: {len(busy_restore)}", True)
+    print(f"    latest: {busy_restore[-1].strip()}")
 else:
-    skip("busy 상태 복원 이력", "현재 로그에 없음 (재시작 시 idle이었을 수 있음)")
+    skip("busy state restore history", "not in current log (may have been idle at restart)")
 
 # ==========================================================
-# #53: auto-resume 프롬프트 모드
+# #53: auto-resume prompt modes
 # ==========================================================
-print("\n#53: auto-resume 프롬프트 모드")
-test("AUTO_RESUME_MODE 설정", "AUTO_RESUME_MODE" in cfg_code)
+print("\n#53: auto-resume prompt modes")
+test("AUTO_RESUME_MODE setting", "AUTO_RESUME_MODE" in cfg_code)
 test("AUTO_RESUME_PROMPTS dict", "AUTO_RESUME_PROMPTS" in cfg_code)
-test("3가지 모드 (resume/check/none)", all(
+test("3 modes (resume/check/none)", all(
     f'"{m}"' in cfg_code for m in ["resume", "check", "none"]
 ))
-test("none 모드 = None", '"none": None' in cfg_code)
-test("supervisor에서 MODE import", "AUTO_RESUME_MODE" in sv_code)
-test("supervisor에서 PROMPTS import", "AUTO_RESUME_PROMPTS" in sv_code)
-test("prompt None 체크 (none 모드 지원)", "if prompt and self._should_auto_resume" in sv_code)
-test("none 모드 로그", 'mode=none' in sv_code)
-# 로그에서 모드 확인
-mode_logs = [l for l in log_content.split("\n") if "mode=" in l and "자동 재개" in l]
+test("none mode = None", '"none": None' in cfg_code)
+test("MODE imported in supervisor", "AUTO_RESUME_MODE" in sv_code)
+test("PROMPTS imported in supervisor", "AUTO_RESUME_PROMPTS" in sv_code)
+test("prompt None check (none mode support)", "if prompt and self._should_auto_resume" in sv_code)
+test("none mode log", 'mode=none' in sv_code)
+# Check modes in the log
+mode_logs = [l for l in log_content.split("\n") if "mode=" in l and "auto-resume" in l]
 none_logs = [l for l in log_content.split("\n") if "mode=none" in l]
 if mode_logs:
-    test(f"자동 재개 모드 로그 {len(mode_logs)}건", True)
-    print(f"    최근: {mode_logs[-1].strip()[:100]}")
+    test(f"auto-resume mode logs: {len(mode_logs)}", True)
+    print(f"    latest: {mode_logs[-1].strip()[:100]}")
 elif none_logs:
-    test(f"none 모드 대기 로그 {len(none_logs)}건", True)
+    test(f"none mode wait logs: {len(none_logs)}", True)
 else:
-    skip("자동 재개 모드 로그", "현재 로그에 없음")
+    skip("auto-resume mode log", "not in current log")
 
 # ==========================================================
-# #54: 느린 응답 중간 알림
+# #54: Progress notice for slow responses
 # ==========================================================
-print("\n#54: 느린 응답 중간 알림")
-test("last_progress_notify 변수", "last_progress_notify" in sv_code)
-test("300초 기준", "elapsed > 300" in sv_code)
-test("5분 간격 (300초)", "last_progress_notify > 300" in sv_code)
-test("중간 알림 전송", "아직 처리 중" in sv_code)
+print("\n#54: Progress notice for slow responses")
+test("last_progress_notify variable", "last_progress_notify" in sv_code)
+test("300s threshold", "elapsed > 300" in sv_code)
+test("every 5 min (300s)", "last_progress_notify > 300" in sv_code)
+test("sends progress notice", 'msg("still_processing"' in sv_code)
 
 # ==========================================================
-# #55: wrapper 반복 재시작 경고
+# #55: Wrapper repeated-restart warning
 # ==========================================================
-print("\n#55: wrapper 반복 재시작 경고")
-test("recent_restarts 리스트", "recent_restarts" in wp_code)
-test("10분(600초) 윈도우", "now - t < 600" in wp_code)
-test("5회 이상 감지", "len(recent_restarts) >= 5" in wp_code)
-test("텔레그램 경고 전송", "잦은 재시작 감지" in wp_code)
+print("\n#55: Wrapper repeated-restart warning")
+test("recent_restarts list", "recent_restarts" in wp_code)
+test("10 min (600s) window", "now - t < 600" in wp_code)
+test("detects 5 or more", "len(recent_restarts) >= 5" in wp_code)
+test("sends Telegram warning", 'msg("daemon_frequent_restart"' in wp_code)
 
 # ==========================================================
-# #56: 로그 로테이션 (날짜별 보관)
+# #56: Log rotation (per-day archives)
 # ==========================================================
-print("\n#56: 로그 로테이션")
+print("\n#56: Log rotation")
 log_utils = read_text(os.path.join(TELECLAW_DIR, "src", "logging_utils.py"))
-test("_archive_lines 함수", "_archive_lines" in log_utils)
-test("날짜별 파일명", 'teleclaw_{date_str}.log' in log_utils or "teleclaw_" in log_utils)
-test("잘린 로그 보관", "_archive_lines(lines[:-500])" in log_utils)
-# 아카이브 파일 존재 확인
+test("_archive_lines function", "_archive_lines" in log_utils)
+test("per-day file name", 'teleclaw_{date_str}.log' in log_utils or "teleclaw_" in log_utils)
+test("trimmed log archived", "_archive_lines(lines[:-500])" in log_utils)
+# Check that archive files exist
 import glob
 archive_files = glob.glob(os.path.join(LOGS_DIR, "teleclaw_20*.log"))
 if archive_files:
-    test(f"아카이브 파일 {len(archive_files)}개", True)
-    print(f"    최근: {os.path.basename(archive_files[-1])}")
+    test(f"{len(archive_files)} archive files", True)
+    print(f"    latest: {os.path.basename(archive_files[-1])}")
 else:
-    skip("아카이브 파일", "아직 로테이션 미발생")
+    skip("archive files", "no rotation yet")
 
 # ==========================================================
 # #47: deleteMessage POST
 # ==========================================================
 print("\n#47: deleteMessage POST")
-test("deleteMessage POST 방식", "ahttp.post" in sv_code and "deleteMessage" in sv_code)
-test("json= 파라미터", 'json={"chat_id"' in sv_code or 'json={' in sv_code)
+test("deleteMessage via POST", "ahttp.post" in sv_code and "deleteMessage" in sv_code)
+test("json= parameter", 'json={"chat_id"' in sv_code or 'json={' in sv_code)
 
 # ==========================================================
-# #48: _notify_all 비동기화
+# #48: async _notify_all
 # ==========================================================
-print("\n#48: _notify_all 비동기화")
+print("\n#48: async _notify_all")
 tg_code = read_text(os.path.join(TELECLAW_DIR, "src", "telegram_api.py"))
-test("async_notify_all 함수 존재", "async def async_notify_all" in tg_code)
-test("async_notify_all import", "async_notify_all" in sv_code)
-test("루프 내 비동기 호출", "await async_notify_all" in sv_code)
-# 시작/종료는 동기 유지 확인
-test("시작 알림은 동기 유지", '_notify_all("[HUB] TeleClaw 시작")' in sv_code)
+test("async_notify_all function exists", "async def async_notify_all" in tg_code)
+test("async_notify_all imported", "async_notify_all" in sv_code)
+test("async call inside loops", "await async_notify_all" in sv_code)
+# Start/stop notices stay synchronous
+test("start notice stays synchronous", '_broadcast_sync(msg("sv_start"))' in sv_code)
 
 # ==========================================================
-# #57: 이미지 누적 에러 감지 → 자동 reset
+# #57: Accumulated image error → auto reset
 # ==========================================================
-print("\n#57: 이미지 누적 에러 감지")
-test("예외 처리부 감지 (dimension limit)", '"dimension limit" in err_str' in sv_code)
-test("예외 처리부 감지 (many-image)", '"many-image" in err_str' in sv_code)
-test("응답 텍스트 감지", '"dimension limit" in full_response' in sv_code)
-test("reset 모드 재시작", '"이미지 누적 에러", mode="reset"' in sv_code)
-test("텔레그램 알림", "이미지 누적으로 컨텍스트 초과" in sv_code)
-# 로그에서 실제 발생 확인
-img_err_logs = [l for l in log_content.split("\n") if "이미지 누적 에러" in l]
+print("\n#57: Accumulated image error detection")
+test("detected in exception handler (dimension limit)", '"dimension limit" in err_str' in sv_code)
+test("detected in exception handler (many-image)", '"many-image" in err_str' in sv_code)
+test("detected in response text", '"dimension limit" in full_response' in sv_code)
+test("restart in reset mode", 'msg("reason_image_overflow"), mode="reset"' in sv_code)
+test("Telegram notice", 'msg("image_overflow")' in sv_code)
+# Check actual occurrences in the log
+img_err_logs = [l for l in log_content.split("\n") if "accumulated image error" in l]
 if img_err_logs:
-    test(f"이미지 누적 에러 이력 {len(img_err_logs)}건", True)
+    test(f"accumulated image errors: {len(img_err_logs)}", True)
 else:
-    skip("이미지 누적 에러 이력", "현재 로그에 미발생")
+    skip("accumulated image error history", "hasn't happened in current log")
 
 # ==========================================================
-# #49: edited_message 수신 지원
+# #49: edited_message support
 # ==========================================================
-print("\n#49: edited_message 수신 지원")
-test("allowed_updates에 edited_message", '"edited_message"' in sv_code)
-test("edited_message 파싱", 'u.get("edited_message")' in sv_code)
-test("is_edited 플래그", "is_edited" in sv_code)
-test("[수정] 태그 부착", "[수정]" in sv_code)
+print("\n#49: edited_message support")
+test("edited_message in allowed_updates", '"edited_message"' in sv_code)
+test("edited_message parsing", 'u.get("edited_message")' in sv_code)
+test("is_edited flag", "is_edited" in sv_code)
+test("[edited] tag appended", 'msg("edited_tag")' in sv_code)
 
 # ==========================================================
-# #50: document/file 메시지 처리
+# #50: document/file messages
 # ==========================================================
-print("\n#50: document/file 메시지 처리")
-test("document 메시지 감지", 'msg.get("document")' in sv_code)
-test("getFile API 호출", "getFile" in sv_code)
-test("파일 저장 디렉토리", 'os.path.join(UPLOADS_DIR, "files")' in sv_code)
-test("캡션 분기", "caption" in sv_code)
+print("\n#50: document/file messages")
+test("document message detection", 'msg.get("document")' in sv_code)
+test("getFile API call", "getFile" in sv_code)
+test("file save directory", 'os.path.join(UPLOADS_DIR, "files")' in sv_code)
+test("caption branch", "caption" in sv_code)
 
 # ==========================================================
-# #25~#35: 기존 test_smoke_25_35.py 범위
+# #25-#35: scope of the former test_smoke_25_35.py
 # ==========================================================
 
-# #25: 중복 제거
-print("\n#25: 중복 메시지 필터링")
-test("_last_msg_map 존재", "_last_msg_map" in sv_code)
-test("message_id 기반 체크", f'msg_key = f"' in sv_code and "msg_id" in sv_code)
+# #25: dedup
+print("\n#25: Duplicate message filtering")
+test("_last_msg_map exists", "_last_msg_map" in sv_code)
+test("message_id based check", f'msg_key = f"' in sv_code and "msg_id" in sv_code)
 
-# #26: date+text 중복
-print("\n#26: 네트워크 재전송 중복 제거")
-test("msg_date_key 로직", "msg_date_key" in sv_code)
-# TTL 300초: cutoff = time.time() - 300 (정리 로직에서 사용)
-test("TTL 5분 (300초)", "time.time() - 300" in sv_code)
+# #26: date+text dedup
+print("\n#26: Network resend dedup")
+test("msg_date_key logic", "msg_date_key" in sv_code)
+# TTL 300s: cutoff = time.time() - 300 (used in cleanup)
+test("TTL 5 min (300s)", "time.time() - 300" in sv_code)
 
-# #27: 이미지
-print("\n#27: 이미지 메시지 처리")
-test("_download_photo 존재", "async def _download_photo" in sv_code)
-test("캡션 분기", "caption" in sv_code)
+# #27: images
+print("\n#27: Image messages")
+test("_download_photo exists", "async def _download_photo" in sv_code)
+test("caption branch", "caption" in sv_code)
 
 # #28: ACK
-print("\n#28: 수신 확인 (ACK)")
-test("idle/busy ACK 분기", 'ack = "✔️"' in sv_code and "처리 중, 대기" in sv_code)
-test("ACK → 큐 투입 순서", sv_code.find("async_send_telegram") < sv_code.find("message_queue.put"))
+print("\n#28: Receipt ACK")
+test("idle/busy ACK branch", 'ack = "✔️"' in sv_code and 'msg("ack_busy"' in sv_code)
+test("ACK → enqueue order", sv_code.find("async_send_telegram") < sv_code.find("message_queue.put"))
 
-# #29-30: 자동 리셋
-print("\n#29-30: 세션 자동 리셋")
-test("쿼리수 체크", "SESSION_RESET_QUERIES" in sv_code)
-test("시간 체크", "SESSION_RESET_HOURS" in sv_code)
+# #29-30: auto reset
+print("\n#29-30: Session auto reset")
+test("query count check", "SESSION_RESET_QUERIES" in sv_code)
+test("age check", "SESSION_RESET_HOURS" in sv_code)
 for name, s in sessions.items():
     qc = s["query_count"]
     age_h = (time.time() - s["start_time"]) / 3600
     test(f"{name}: Q={qc}/100, age={age_h:.1f}h/6h", qc < 100 and age_h < 6)
 
-# #31-32: 자동 재개
-print("\n#31-32: 자동 재개")
-test("_should_auto_resume 존재", "def _should_auto_resume" in sv_code)
-test("resume_count 2회 제한", "resume_count >= 2" in sv_code)
-test("사용자 메시지 → resume_count 리셋", "not is_auto_resume" in sv_code)
+# #31-32: auto-resume
+print("\n#31-32: Auto-resume")
+test("_should_auto_resume exists", "def _should_auto_resume" in sv_code)
+test("resume_count limited to 2", "resume_count >= 2" in sv_code)
+test("user message → resume_count reset", "not is_auto_resume" in sv_code)
 
 # #33: watchdog
 print("\n#33: watchdog")
 test("asyncio watchdog loop", "async def _watchdog_loop" in sv_code)
 test("threading watchdog", "def _start_watchdog_thread" in sv_code)
-test("300초 임계값", "age > 300" in sv_code)
+test("300s threshold", "age > 300" in sv_code)
 watchdog_logs = [l for l in log_content.split("\n") if "WATCHDOG" in l]
-test(f"WATCHDOG 발동 0건", len(watchdog_logs) == 0)
+test(f"WATCHDOG fired 0 times", len(watchdog_logs) == 0)
 
 # #34: rate limit
 print("\n#34: rate limit")
-test("monkey-patch 존재", "_patched_parse" in sv_code)
-test("rate_limit_event 처리", "rate_limit_event" in sv_code)
-test("_rate_limit_data 저장", "_rate_limit_data" in sv_code)
+test("monkey-patch exists", "_patched_parse" in sv_code)
+test("rate_limit_event handling", "rate_limit_event" in sv_code)
+test("_rate_limit_data stored", "_rate_limit_data" in sv_code)
 
-# #35: 쿨다운
-print("\n#35: 재시작 쿨다운")
+# #35: cooldown
+print("\n#35: Restart cooldown")
 test("cooldown = 300", "cooldown = 300" in sv_code)
-test("force 우회", "not force and elapsed < cooldown" in sv_code)
+test("force bypass", "not force and elapsed < cooldown" in sv_code)
 
 # ==========================================================
-# #36: session_id 복원 / continue 폴백
+# #36: session_id restore / continue fallback
 # ==========================================================
-print("\n#36: session_id 복원 / continue 폴백")
-test("session_id 복원 로직", "session_id 복원" in sv_code)
-test("continue 폴백 (session_id 없을 때)", "continue 폴백" in sv_code or "continue_conversation" in sv_code)
-# 로그에서 실제 동작 확인
-restore_logs = [l for l in log_content.split("\n") if "session_id 복원" in l]
-fallback_logs = [l for l in log_content.split("\n") if "continue 폴백" in l]
-test(f"session_id 복원 이력 {len(restore_logs)}건", len(restore_logs) >= 0)  # 0도 OK
+print("\n#36: session_id restore / continue fallback")
+test("session_id restore logic", "session_id restored" in sv_code)
+test("continue fallback (no session_id)", "continue fallback" in sv_code or "continue_conversation" in sv_code)
+# Check actual behavior in the log
+restore_logs = [l for l in log_content.split("\n") if "session_id restored" in l]
+fallback_logs = [l for l in log_content.split("\n") if "continue fallback" in l]
+test(f"session_id restores: {len(restore_logs)}", len(restore_logs) >= 0)  # 0 is OK too
 if restore_logs:
-    print(f"    최근: {restore_logs[-1].strip()}")
+    print(f"    latest: {restore_logs[-1].strip()}")
 if fallback_logs:
-    test(f"continue 폴백 이력 {len(fallback_logs)}건", True)
-    print(f"    최근: {fallback_logs[-1].strip()}")
+    test(f"continue fallbacks: {len(fallback_logs)}", True)
+    print(f"    latest: {fallback_logs[-1].strip()}")
 
 # ==========================================================
-# #37: MCP 안정화 대기
+# #37: MCP stabilization wait
 # ==========================================================
-print("\n#37: MCP 안정화 대기")
-test("_wait_mcp_ready 메서드", "_wait_mcp_ready" in sv_code or "MCP 안정화" in sv_code)
-mcp_logs = [l for l in log_content.split("\n") if "MCP 안정화" in l]
+print("\n#37: MCP stabilization wait")
+test("_wait_mcp_ready method", "_wait_mcp_ready" in sv_code or "MCP stabilization" in sv_code)
+mcp_logs = [l for l in log_content.split("\n") if "MCP stabilization" in l]
 if mcp_logs:
-    test(f"MCP 안정화 대기 로그 {len(mcp_logs)}건", True)
+    test(f"MCP stabilization wait logs: {len(mcp_logs)}", True)
 else:
-    skip("MCP 안정화 대기 로그", "현재 로그에 없음 (재시작 후 로테이션)")
+    skip("MCP stabilization wait log", "not in current log (rotated after restart)")
 
 # ==========================================================
-# #38: 응답 시간 분포 (이상치 감지)
+# #38: Response time distribution (outlier detection)
 # ==========================================================
-print("\n#38: 응답 시간 분포")
+print("\n#38: Response time distribution")
 import re
-send_logs = [l for l in log_content.split("\n") if "최종 전송" in l]
+send_logs = [l for l in log_content.split("\n") if "final send" in l]
 times_sec = []
 for l in send_logs:
     m = re.search(r'(\d+\.\d+)s\)', l)
@@ -654,92 +654,92 @@ for l in send_logs:
 if times_sec:
     avg = sum(times_sec) / len(times_sec)
     max_t = max(times_sec)
-    test(f"응답 {len(times_sec)}건, 평균 {avg:.0f}초, 최대 {max_t:.0f}초", True)
-    test(f"15분 초과 응답 없음", max_t < 900, f"최대={max_t:.0f}초")
+    test(f"{len(times_sec)} responses, avg {avg:.0f}s, max {max_t:.0f}s", True)
+    test(f"no response over 15 min", max_t < 900, f"max={max_t:.0f}s")
 else:
-    skip("응답 시간 분석", "최종 전송 로그 없음")
+    skip("response time analysis", "no final send logs")
 
 # ==========================================================
-# #39: 3개 세션 병렬 처리 실측
+# #39: Measured parallel processing across 3 sessions
 # ==========================================================
-print("\n#39: 3개 세션 병렬 처리")
-# 같은 시간대에 여러 세션이 busy였는지 확인
+print("\n#39: Parallel processing across 3 sessions")
+# Check whether multiple sessions were busy in the same period
 sessions_active = set()
 for l in log_content.split("\n"):
-    if "메시지 처리 시작" in l:
+    if "processing message" in l:
         for name in ["Converter", "NemoNemo", "Crossword"]:
             if name in l:
                 sessions_active.add(name)
-test(f"복수 세션 활동 확인 ({len(sessions_active)}개)", len(sessions_active) >= 2,
-     f"활동 세션: {sessions_active}")
+test(f"multiple sessions active ({len(sessions_active)})", len(sessions_active) >= 2,
+     f"active sessions: {sessions_active}")
 
 # ==========================================================
-# #40: usage 로그 기록
+# #40: usage logging
 # ==========================================================
-print("\n#40: usage 로그 기록")
+print("\n#40: usage logging")
 usage_logs = [l for l in log_content.split("\n") if "[usage]" in l]
-test(f"usage 로그 {len(usage_logs)}건 기록", len(usage_logs) > 0)
-# usage에 input/output tokens 포함 확인
+test(f"usage logs recorded: {len(usage_logs)}", len(usage_logs) > 0)
+# Check that usage includes input/output tokens
 if usage_logs:
-    test("input_tokens 포함", "input_tokens" in usage_logs[-1])
-    test("output_tokens 포함", "output_tokens" in usage_logs[-1])
+    test("includes input_tokens", "input_tokens" in usage_logs[-1])
+    test("includes output_tokens", "output_tokens" in usage_logs[-1])
 
 # ==========================================================
-# #41: disconnect 에러 후 재연결 성공
+# #41: Reconnect succeeds after disconnect error
 # ==========================================================
-print("\n#41: disconnect 에러 후 재연결")
-disconnect_errors = [l for l in log_content.split("\n") if "disconnect 에러" in l]
+print("\n#41: Reconnect after disconnect error")
+disconnect_errors = [l for l in log_content.split("\n") if "disconnect error" in l]
 reconnect_after = 0
 for i, l in enumerate(log_content.split("\n")):
-    if "disconnect 에러" in l:
-        # 이후 "연결 완료" 있는지 확인
+    if "disconnect error" in l:
+        # check for a following "connected"
         remaining = "\n".join(log_content.split("\n")[i:i+20])
-        if "연결 완료" in remaining or "SDK 세션 연결 완료" in remaining:
+        if "connected" in remaining or "SDK session connected" in remaining:
             reconnect_after += 1
 if disconnect_errors:
-    test(f"disconnect {len(disconnect_errors)}건 후 재연결 {reconnect_after}건",
+    test(f"{len(disconnect_errors)} disconnects, {reconnect_after} reconnects",
          reconnect_after > 0,
-         f"disconnect={len(disconnect_errors)}, 재연결={reconnect_after}")
+         f"disconnect={len(disconnect_errors)}, reconnect={reconnect_after}")
 else:
-    skip("disconnect 에러 후 재연결", "disconnect 에러 없음")
+    skip("reconnect after disconnect error", "no disconnect errors")
 
 # ==========================================================
-# #42: 최종 전송 청크 분할
+# #42: Final send chunking
 # ==========================================================
-print("\n#42: 최종 전송 청크 분할")
-test("_split_message 로직", "_split_message" in sv_code)
-test("최종 전송 로그 형식 (N자, N청크, N초)", "최종 전송" in sv_code)
-multi_chunk = [l for l in send_logs if "1청크" not in l]
+print("\n#42: Final send chunking")
+test("_split_message logic", "_split_message" in sv_code)
+test("final send log format (N chars, N chunks, Ns)", "final send" in sv_code)
+multi_chunk = [l for l in send_logs if ", 1 chunks," not in l]
 if multi_chunk:
-    test(f"다중 청크 전송 {len(multi_chunk)}건", True)
-    print(f"    예시: {multi_chunk[-1].strip()}")
+    test(f"multi-chunk sends: {len(multi_chunk)}", True)
+    print(f"    example: {multi_chunk[-1].strip()}")
 else:
-    test("모든 응답 1청크 (4096자 이하)", True)
+    test("all responses in 1 chunk (<= 4096 chars)", True)
 
 # ==========================================================
-# 추가: 시스템 무결성 체크
+# Extra: system integrity checks
 # ==========================================================
-print("\n== 시스템 무결성 ==")
-test("supervisor.lock 존재", os.path.exists(LOCK_FILE))
+print("\n== System integrity ==")
+test("supervisor.lock exists", os.path.exists(LOCK_FILE))
 if os.path.exists(LOCK_FILE):
     lock_data = read_json(LOCK_FILE)
     test("lock PID = status PID", lock_data.get("pid") == status.get("pid"),
          f"lock={lock_data.get('pid')}, status={status.get('pid')}")
-test("session_ids.json 존재", os.path.exists(SESSION_IDS_FILE))
-# 에러 로그 분석
-# 실제 처리 에러만 필터 (도구 호출 로그 제외)
+test("session_ids.json exists", os.path.exists(SESSION_IDS_FILE))
+# Error log analysis
+# Only real processing errors (exclude tool call logs)
 error_lines = [l for l in log_content.split("\n")
-               if ("처리 에러:" in l or "loop 에러:" in l)
+               if ("processing error (" in l or "loop error:" in l)
                and "[block]" not in l and "[result]" not in l]
 critical_errors = error_lines
-test(f"critical 에러 0건", len(critical_errors) == 0,
-     f"{len(critical_errors)}건: {critical_errors[-1][:80] if critical_errors else ''}")
+test(f"0 critical errors", len(critical_errors) == 0,
+     f"{len(critical_errors)}: {critical_errors[-1][:80] if critical_errors else ''}")
 
 # ==========================================================
-# 결과
+# Results
 # ==========================================================
 print(f"\n{'='*60}")
-print(f"전체 결과: ✅ {passed} passed, ❌ {failed} failed, ⏭️ {skipped} skipped")
+print(f"Total: ✅ {passed} passed, ❌ {failed} failed, ⏭️ {skipped} skipped")
 print(f"{'='*60}")
 
 sys.exit(1 if failed > 0 else 0)

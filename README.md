@@ -1,103 +1,92 @@
 # TeleClaw
 
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/gbongk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776ab.svg)](https://python.org)
 
-**Remote-control your Claude Code sessions from Telegram.**
+**Run and steer Claude Code sessions from Telegram.**
 
-Keep Claude Code working on your projects while you're away from your desk — monitor progress, send instructions, and manage multiple sessions from your phone.
+TeleClaw keeps Claude Code working on your projects while you're away from your desk. Each project gets its own Telegram bot: you send instructions, watch the answer stream in, and restart or pause sessions from your phone.
 
-## Why TeleClaw?
+> A fork of [TeleClaw](https://github.com/gbongk/teleclaw) by gbongk.
 
-While [Claude Code Channels](https://code.claude.com/docs/en/channels) provides official Telegram/Discord integration, TeleClaw is built for developers who need a **production-grade remote environment**:
+## Contents
 
-- **Multi-project management** — Run N independent Claude sessions simultaneously, each with its own Telegram bot
-- **High availability** — 3-tier auto-recovery: health check (2min) + daemon wrapper (exponential backoff) + system service (systemd/Task Scheduler)
-- **Live streaming** — Real-time `editMessage` updates with 3-second buffering, not just final responses
-- **Output modes** — Switch between `minimal` (text only) and `normal` (text + tool summaries) via `/mode`
-- **Stateful persistence** — SQLite-backed session management with reliable state recovery
-- **CLI tooling** — `teleclaw_ctl` for terminal-based daemon management
-- **Slash command passthrough** — `/compact`, `/context`, `/cost` and other Claude Code commands work directly from Telegram
+- [How it works](#how-it-works)
+- [Security](#security)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Languages](#languages)
+- [Running as a service](#running-as-a-service)
+- [Telegram commands](#telegram-commands)
+- [CLI](#cli)
+- [Auto-recovery](#auto-recovery)
+- [Files and storage](#files-and-storage)
+- [Project structure](#project-structure)
+- [Development](#development)
 
-## Security
+## How it works
 
-TeleClaw provides powerful remote access to your system. Please follow these guidelines:
-
-- **Permission bypass** — TeleClaw runs with `bypassPermissions` for seamless remote operation. The AI can execute system commands without manual approval. **Use only in trusted environments.**
-- **Bot token protection** — Your Telegram bot token grants access to your system. Never commit it to public repositories. Keep it in `config.yaml` (gitignored) or environment variables.
-- **Private chat only** — Use TeleClaw in 1:1 chat with your bot, not in group chats.
-- **User whitelist** — Always configure `chat_id` in `config.yaml`. If left empty, all messages are rejected. Use `allowed_users` to add additional trusted user IDs.
-
-## How it Works
-
-TeleClaw uses the [Claude Code SDK](https://www.npmjs.com/package/@anthropic-ai/claude-code) to spawn and manage Claude Code as subprocesses. Each project gets its own long-lived SDK session with preserved context — so Claude remembers what it was working on across messages.
+TeleClaw starts each project as a long-lived Claude Code session through the [Claude Code SDK](https://docs.anthropic.com/en/docs/claude-code/sdk), so Claude keeps its context between your messages. Events stream back over the SDK and are written into Telegram with `editMessage`, so you see the answer and tool calls as they happen.
 
 ```
-You (Telegram) → TeleClaw → Claude Code SDK → Claude Code subprocess
-                                ↑ streaming events (text, tool_use, result)
-                    TeleClaw ←──┘ editMessage back to Telegram in real-time
+You (Telegram) ──► TeleClaw ──► Claude Code SDK ──► Claude Code session (one per project)
+       ▲                              │
+       └──── live editMessage ◄───────┘  text, tool use, results
 ```
-
-No hooks or plugins required — TeleClaw receives all events directly through the SDK streaming API.
-
-## Features
-
-- **Telegram remote control** — Send messages to Claude Code, see live-streamed responses
-- **Multi-session management** — Run multiple projects simultaneously with independent bots
-- **Persistent sessions** — Context preserved across messages via Claude Code SDK
-- **Auto-recovery** — DEAD/STUCK detection with 3-stage restart + auto-resume
-- **Dual watchdog** — Process-level wrapper (exponential backoff) + async health check loop
-- **Live streaming** — 3-second buffered editMessage for real-time response updates
-- **Tool tracking** — See which files Claude reads/edits in real-time via Telegram
-- **i18n** — Korean and English UI (`lang: "en"` in config)
-- **Cross-platform** — Windows, Linux, macOS
-- **System service** — `teleclaw install` for systemd (Linux) or Task Scheduler (Windows)
-
-## Architecture
 
 ```
 ┌──────────────┐
-│   Telegram   │  You send a message from your phone
+│   Telegram   │   one bot per project
 └──────┬───────┘
        │ long poll
 ┌──────▼───────────────────────────────────┐
 │            TeleClaw (asyncio)            │
-│                                          │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐    │
-│  │ Project1│ │ Project2│ │ Project3│ .. │  N independent sessions
-│  │  bot    │ │  bot    │ │  bot    │    │
-│  └────┬────┘ └────┬────┘ └────┬────┘    │
-│       │           │           │          │
-│  Health check (2min) · Watchdog (5min)   │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐     │
+│  │ Project1│ │ Project2│ │ Project3│ ... │
+│  └────┬────┘ └────┬────┘ └────┬────┘     │
+│  health check (2 min) · watchdog (5 min) │
 └───────┼───────────┼───────────┼──────────┘
-        │           │           │
 ┌───────▼───────────▼───────────▼──────────┐
-│          Claude Code SDK sessions         │
-│   (persistent context, auto-resume)       │
+│   Claude Code sessions (persistent)      │
 └──────────────────────────────────────────┘
+        ▲
+        └── teleclaw_daemon: restarts TeleClaw if it crashes
 ```
 
-## Quick Start
+What you get:
+
+- **Several projects at once**, each in its own session with its own bot.
+- **Live output**: answers and tool activity (which files Claude reads or edits) update in place.
+- **Recovery without you**: stuck or dead sessions restart and pick up where they left off; a wrapper restarts the whole app if it crashes.
+- **Claude Code commands from Telegram**: `/compact`, `/context`, `/cost` and other slash commands are passed straight to the session.
+- **Five UI languages**: English, Korean, Azerbaijani, Russian and Turkish.
+- **Windows, Linux and macOS**, with a system service for each.
+
+## Security
+
+TeleClaw gives whoever controls the bot a shell on your machine. Read this before you run it.
+
+- **No permission prompts.** Sessions run with `bypassPermissions`, so Claude runs commands and edits files without asking. Only use it on machines and projects you trust.
+- **The bot token is a key to your machine.** Keep it in `config.yaml`, which is gitignored, and never commit it.
+- **Restrict who can talk to it.** Set `chat_id` to your own Telegram ID. Messages from anyone else are ignored, and if `chat_id` is empty, everything is rejected. Add other trusted IDs with `allowed_users`.
+- **Use a private chat** with the bot, not a group.
+
+## Quick start
 
 ### Prerequisites
 
 - Python 3.11+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- Telegram bot token (create one via [@BotFather](https://t.me/BotFather))
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), installed and logged in
+- A Telegram bot token for each project, from [@BotFather](https://t.me/BotFather)
+- Your Telegram user ID, for example from [@userinfobot](https://t.me/userinfobot)
 
 ### Install
 
 ```bash
-# Using uv (recommended — isolated environment)
-uv tool install git+https://github.com/gbongk/teleclaw@v0.1.0
-
-# Or using pip
-pip install git+https://github.com/gbongk/teleclaw@v0.1.0
-
-# From source (for development)
-git clone https://github.com/gbongk/teleclaw.git
+git clone https://github.com/shamolee/teleclaw.git
 cd teleclaw
+python -m venv .venv
+# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
 pip install -e .
 ```
 
@@ -107,104 +96,138 @@ pip install -e .
 cp config.example.yaml config.yaml
 ```
 
-Edit `config.yaml`:
+Fill in at least `chat_id` and one project:
 
 ```yaml
 lang: "en"
-chat_id: "YOUR_TELEGRAM_CHAT_ID"
-allowed_users: ""
+chat_id: "123456789"
 
 projects:
-  MyProject:
-    cwd: "/path/to/your/project"
-    bot_token: "BOT_TOKEN_FROM_BOTFATHER"
+  MyApp:
+    cwd: "/path/to/myapp"
+    bot_token: "123456:ABC..."
 ```
-
-You can add multiple projects — each gets its own Telegram bot:
-
-```yaml
-projects:
-  Frontend:
-    cwd: "/home/user/frontend"
-    bot_token: "111:AAA..."
-  Backend:
-    cwd: "/home/user/backend"
-    bot_token: "222:BBB..."
-```
-
-### Language
-
-TeleClaw supports English and Korean. Set `lang` in `config.yaml`:
-
-```yaml
-lang: "en"   # English (default)
-lang: "ko"   # Korean
-```
-
-All Telegram messages, CLI output, and system notifications will use the selected language.
 
 ### Run
 
 ```bash
-# Install as system service (recommended)
-# Starts immediately + auto-start on boot/login
-teleclaw install
-
-# Management commands
-teleclaw status        # check if running
-teleclaw logs          # view logs
-teleclaw uninstall     # remove service
+teleclaw                      # run in the foreground (no auto-restart)
+python -m src.teleclaw_daemon # run with the auto-restart wrapper
 ```
 
-Or run manually:
+Send your bot a message; it goes to Claude Code in that project's folder. To keep it running after reboots, see [Running as a service](#running-as-a-service).
+
+## Configuration
+
+All settings live in `config.yaml`. TeleClaw looks for it in this order:
+
+1. the path in the `TELECLAW_CONFIG` environment variable
+2. `config.yaml` in the repository root
+3. `~/.teleclaw/config.yaml`
+
+| Key | Default | Description |
+|---|---|---|
+| `lang` | `en` | UI language: `en`, `ko`, `az`, `ru` or `tr`. See [Languages](#languages). |
+| `chat_id` | *(required)* | Your Telegram user ID. Only this user, plus `allowed_users`, can use the bots. |
+| `allowed_users` | `""` | Extra Telegram user IDs, comma-separated. |
+| `projects` | | One entry per project, each with `cwd` (the folder Claude works in) and `bot_token`. |
+| `output_level` | `normal` | `minimal` shows text only, `normal` adds tool summaries. Change it at runtime with `/mode`. |
+| `icons` | | Optional `thinking` and `done` icons for status messages. |
+| `storage_dir` | `storage` | Where logs, locks, state and uploads go. A relative path is resolved from the folder containing `config.yaml`. |
+| `upload_retention_days` | `7` | Delete images and files received from Telegram after this many days. `0` keeps them forever. |
+| `service_name` | `TeleClaw` | Name of the Windows scheduled task. |
+
+Several projects, each with its own bot:
+
+```yaml
+projects:
+  Frontend:
+    cwd: "/home/me/frontend"
+    bot_token: "111:AAA..."
+  Backend:
+    cwd: "/home/me/backend"
+    bot_token: "222:BBB..."
+```
+
+## Languages
+
+Set `lang` in `config.yaml` to `en`, `ko`, `az`, `ru` or `tr`. The language applies to every Telegram message, the bot's `/` command menu, CLI output and notifications. It also applies to the prompts TeleClaw sends to Claude, such as "please check this image" or the auto-resume prompt, so Claude answers in the same language.
+
+Translations are plain JSON files in [`src/resources/lang/`](src/resources/lang/), one per language. To add a language:
+
+1. Copy `en.json` to `<code>.json`, for example `de.json`.
+2. Translate the values. Keep every `{placeholder}`, line break and leading space as it is.
+3. Run `pytest tests/test_locales.py`. It checks that your file has the same keys and placeholders as `en.json`.
+
+Keys missing from a language fall back to English.
+
+## Running as a service
+
+### Linux and macOS (systemd user service)
+
 ```bash
-# With auto-restart wrapper
-python -m src.teleclaw_daemon
-
-# Direct (no auto-restart, for debugging)
-teleclaw
+teleclaw install     # register and start; starts again on boot
+teleclaw status
+teleclaw logs [N]
+teleclaw uninstall
 ```
 
-## Telegram Commands
+### Windows
 
-### TeleClaw
+There are two options.
+
+**Simple: `teleclaw install`.** Registers a scheduled task that starts the wrapper when you log in.
+
+**Recommended for an always-on machine: [`win-scripts/`](win-scripts/).** Starts at boot and keeps running after you log out, without storing your password. In an elevated PowerShell:
+
+```powershell
+win-scripts\install_service_admin.ps1
+```
+
+The installer uses the task name from `service_name`. It finds `claude` on your PATH and passes its folder to the task, so Claude Code must be installed and on PATH when you run it. Run it again whenever you move the folder or change `service_name`.
+
+Day-to-day scripts:
+
+| Script | Does |
+|---|---|
+| `win-scripts\start.ps1` | Start the task and show status |
+| `win-scripts\stop.ps1` | Stop the task and every TeleClaw process. Use an elevated shell if the task was started at boot. |
+| `win-scripts\restart.ps1` | Stop, then start |
+| `win-scripts\status.ps1` | Task state, running processes, bot status and the last log lines |
+
+The task runs [`run_teleclaw.cmd`](run_teleclaw.cmd). It uses `.venv` if one exists and writes the wrapper's output to `storage/logs/task_out.log`, keeping one previous copy once the log passes 5 MB.
+
+## Telegram commands
+
+Send any normal message to give Claude an instruction. Photos and files are saved and handed to Claude together with their caption.
+
+**Status and info**
 
 | Command | Description |
 |---|---|
-| *(any message)* | Send instruction to Claude Code |
-| `/status` (`/s`) | Session status (OK / DEAD / STUCK) |
-| `/usage` (`/u`) | Claude API usage (5h / 7d limits) |
-| `/sys` | System info (CPU / memory / processes) |
-| `/log` (`/l`) `[N]` | Recent logs (default 20 lines) |
-| `/mode` `[minimal/normal]` | Output verbosity mode |
-
-### Session Management
-
-| Command | Description |
-|---|---|
-| `/esc` (`/interrupt`) `<name>` | Interrupt current task |
-| `/pause` (`/p`) `<name>` | Pause session |
-| `/restart` (`/r`) `[name]` | Restart session (with auto-resume) |
-| `/reset [name]` | Reset session (clear context) |
-| `/ask <question>` | Quick question (separate session) |
+| `/status` (`/s`) | Session health: OK, DEAD or STUCK |
+| `/usage` (`/u`) | Claude usage against the 5-hour and 7-day limits |
+| `/ctx` | Context window usage per session |
+| `/sys` | CPU, memory and processes |
+| `/log [N]` (`/l`) | Last N log lines (default 20) |
+| `/mode [minimal\|normal]` | Show or change the output level |
 | `/help` (`/h`) | Command list |
 
-### Claude Code (passed to session)
+**Session control**
 
-Any other `/` command is forwarded directly to the Claude Code session:
+| Command | Description |
+|---|---|
+| `/esc [name]` (`/interrupt`) | Interrupt the current task |
+| `/pause [name]` (`/p`) | Disconnect the session until you `/restart` it |
+| `/restart [name]` (`/r`) | Restart and keep context, then resume what it was doing |
+| `/reset [name]` | Restart with a fresh context |
+| `/ask <question>` | Quick question in a separate session, without disturbing the main one |
 
-```
-/compact    — compress context
-/context    — context usage details
-/cost       — session cost and duration
-/review     — PR review
-/simplify   — code quality review
-...and more
-```
+**Claude Code commands.** Any other `/` command, such as `/compact`, `/context`, `/cost` or `/review`, is forwarded to the Claude Code session as-is.
 
-## CLI Commands
+## CLI
 
-`teleclaw_ctl` provides the same management from the terminal:
+`teleclaw_ctl` does the same management from a terminal:
 
 ```bash
 python -m src.teleclaw_ctl <command> [args]
@@ -212,109 +235,96 @@ python -m src.teleclaw_ctl <command> [args]
 
 | Command | Short | Description |
 |---|---|---|
-| `sys` | | System CPU/RAM status |
-| `ps` | `s` | Process list (PID, memory, Q/E/R) |
+| `ps` | `s` | Sessions and processes: PID, memory, queue/errors/restarts |
+| `sys` | | CPU and memory |
 | `ctx` | `c` | Context window usage per session |
-| `usage` | `u` | Token usage (5h/7d) |
-| `restart [name]` | `r` | Restart session (default: current project) |
+| `usage` | `u` | Claude usage (5h / 7d) |
+| `restart [name]` | `r` | Restart a session |
+| `reset [name]` | | Restart a session with a fresh context |
+| `pause [name]` | `p` | Pause a session |
 | `tc` | | Restart TeleClaw itself |
-| `reset [name]` | | Reset session (clear context) |
-| `pause [name]` | `p` | Pause session |
-| `log [N]` | `l` | Recent logs (default 20 lines) |
+| `log [N]` | `l` | Last N log lines |
 | `help` | `h` | Command list |
 
-All state (pause, restart commands) is stored in SQLite — no flag files.
+Commands reach the running app through its SQLite state database, so there are no flag files.
 
-## Auto-Recovery
-
-TeleClaw has two layers of protection:
-
-### 1. Health Check (session level)
-
-Every 2 minutes, each session is assessed:
-- **DEAD** — client disconnected or None
-- **STUCK** — busy for 30+ minutes, or queue not draining
-- **OK** — normal
-
-DEAD/STUCK triggers automatic `_restart_session()` with resume.
-
-### 2. Wrapper (process level)
-
-`teleclaw_daemon.py` monitors the TeleClaw process itself:
-
-```
-Normal exit (alive > 30s)  →  restart after 3s
-Crash (alive < 30s)        →  exponential backoff: 3s → 6s → 12s → ... → 30min max
-```
-
-During backoff, the wrapper still polls Telegram for emergency commands (`/restart`, `/kill`).
-
-### What if the wrapper itself dies?
-
-If you used `teleclaw install`, the system service (systemd/Task Scheduler) will restart the wrapper on login/boot. Otherwise, you need to manually start `python -m src.teleclaw_daemon` again.
-
-To check if everything is running:
-```bash
-# Via Telegram
-/status
-
-# Via CLI
-python -m src.teleclaw_ctl ps
-
-# Via system service
-teleclaw status
-```
-
-## Telegram Helper
-
-`telegram_helper.py` lets Claude Code sessions send messages directly to Telegram — independent of TeleClaw's automatic streaming.
+To let Claude itself message you, for example when a long build finishes, use the Telegram helper from inside a project folder. It picks the bot whose `cwd` matches your current folder.
 
 ```bash
-# Text message
-python telegram_helper.py text "Build complete!"
-
-# Photo with optional caption
-python telegram_helper.py photo screenshot.png "Latest UI"
-
-# File with optional caption
-python telegram_helper.py file report.csv "Analysis result"
+python -m src.telegram_helper text "Build finished"
+python -m src.telegram_helper photo screenshot.png "Latest UI"
+python -m src.telegram_helper file report.csv "Results"
 ```
 
-The bot token is auto-matched based on your current working directory and `config.yaml`.
+## Auto-recovery
 
-## Project Structure
+Recovery works at three levels:
+
+1. **Session health check, every 2 minutes.** A session whose client is gone is **DEAD**, and one busy for 30+ minutes is **STUCK**. Both are restarted automatically. After a restart, Claude is asked to continue its unfinished work. A session is restarted at most 3 times in 30 minutes.
+2. **Watchdog.** If the app's event loop stops responding for 5 minutes, the process exits so the wrapper can start it again.
+3. **Wrapper (`teleclaw_daemon`).** Restarts the app when it exits. A clean run that lasted 30 seconds or more restarts after 3 s. Repeated quick crashes back off exponentially (3 s, 6 s, 12 s … up to 30 min) and you get a Telegram alert. While it waits, the wrapper still answers emergency commands: `/status`, `/log`, `/restart`, `/kill`, `/ask`, `/help`.
+
+The system service restarts the wrapper itself after a reboot.
+
+## Files and storage
+
+Everything TeleClaw writes at runtime goes under `storage/`, or the folder set by `storage_dir`:
+
+```
+storage/
+  logs/      teleclaw.log (+ daily archives, kept 7 days), wrapper.log,
+             teleclaw_stderr.log, task_out.log
+  locks/     single-instance locks for the app and the wrapper
+  state/     SQLite state, Claude session IDs, Telegram offsets, status
+  uploads/   images and files received from Telegram
+```
+
+Only `state/` needs to survive. It holds each project's Claude session ID, so context survives restarts, and each bot's Telegram position, so old messages aren't processed again. Everything else is safe to delete while TeleClaw is stopped.
+
+Upgrading from a version that used `logs/` and `data/` in the repository root? Those folders are moved into `storage/` automatically the first time the new version starts.
+
+## Project structure
 
 ```
 teleclaw/
-+-- src/                       # Main package
-|   +-- teleclaw.py            # TeleClaw class (core)
-|   +-- teleclaw_daemon.py             # Auto-restart wrapper
-|   +-- teleclaw_ctl.py               # CLI management tool
-|   +-- telegram_helper.py     # CLI: send text/photo/file to Telegram
-|   +-- telegram_api.py        # Telegram API (sync/async, text/photo/file)
-|   +-- channel.py             # Abstract channel interface
-|   +-- channel_telegram.py    # Telegram channel implementation
-|   +-- commands.py            # Command handlers
-|   +-- messages.py            # i18n messages (ko/en)
-|   +-- session.py             # SessionState dataclass
-|   +-- config.py              # config.yaml loader
-|   +-- state_db.py            # SQLite state management
-|   +-- service.py             # systemd / Task Scheduler support
-|   +-- process_utils.py       # Cross-platform process utils
-|   +-- usage_fmt.py           # Usage formatting
-|   +-- logging_utils.py       # Logging utils
-+-- tests/                     # Unit + smoke tests
-+-- config.example.yaml        # Config template
-+-- pyproject.toml              # Package metadata
-+-- LICENSE                     # MIT
+├── src/
+│   ├── teleclaw.py           # core: sessions, polling, streaming, health checks
+│   ├── teleclaw_daemon.py    # auto-restart wrapper
+│   ├── teleclaw_ctl.py       # terminal CLI
+│   ├── telegram_helper.py    # send text/photo/file to Telegram from a shell
+│   ├── telegram_api.py       # Telegram Bot API calls and text formatting
+│   ├── channel.py            # abstract chat channel
+│   ├── channel_telegram.py   # Telegram implementation of the channel
+│   ├── commands.py           # Telegram command handlers
+│   ├── messages.py           # loads translations, msg()
+│   ├── resources/lang/       # en/ko/az/ru/tr translations (JSON)
+│   ├── config.py             # config.yaml loading and paths
+│   ├── storage.py            # storage/ layout, migration, upload cleanup
+│   ├── state_db.py           # SQLite state
+│   ├── session.py            # per-session state
+│   ├── service.py            # systemd / Task Scheduler install
+│   ├── process_utils.py      # cross-platform process helpers
+│   ├── usage_fmt.py          # usage formatting
+│   └── logging_utils.py      # logging and single-instance lock
+├── win-scripts/              # Windows service install and control
+├── run_teleclaw.cmd          # launcher used by the Windows task
+├── tests/                    # unit tests + live smoke test
+└── config.example.yaml
 ```
 
-## Support
+## Development
 
-If you find TeleClaw useful, consider buying me a coffee:
+```bash
+pip install -e . pytest pytest-asyncio
+make test                 # python -m pytest tests/ -x -q
+```
 
-[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/gbongk)
+`tests/test_smoke.py` checks a live installation (its logs, status file and running processes), so it's excluded from the normal test run. Run it directly with `python tests/test_smoke.py` on a machine where TeleClaw is running.
+
+## Credits
+
+This project is a fork of [TeleClaw](https://github.com/gbongk/teleclaw) by gbongk, released under the MIT License.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

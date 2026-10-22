@@ -1,4 +1,4 @@
-"""SQLite 기반 상태 관리 — flag 파일 + JSON 상태 파일 대체."""
+"""SQLite-backed state — replaces flag files + JSON state files."""
 
 import os
 import sqlite3
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS teleclaw_state (
 
 
 def init(db_path: str = ""):
-    """DB 초기화. db_path 미지정 시 STATE_DIR/teleClaw.db"""
+    """Initialize the DB. Defaults to STATE_DIR/teleClaw.db when db_path is not given."""
     global _DB_PATH
     if not db_path:
         from .config import STATE_DIR, DB_FILE
@@ -62,7 +62,7 @@ def init(db_path: str = ""):
         db_path = DB_FILE
     _DB_PATH = db_path
     conn = _get_conn()
-    # 레거시 테이블명 마이그레이션 (supervisor_state → teleclaw_state)
+    # Legacy table name migration (supervisor_state → teleclaw_state)
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     if "supervisor_state" in tables and "teleclaw_state" not in tables:
         conn.execute("ALTER TABLE supervisor_state RENAME TO teleclaw_state")
@@ -72,7 +72,7 @@ def init(db_path: str = ""):
 
 
 def _get_conn() -> sqlite3.Connection:
-    """스레드별 커넥션 반환."""
+    """Return the per-thread connection."""
     if not hasattr(_local, "conn") or _local.conn is None:
         _local.conn = sqlite3.connect(_DB_PATH, timeout=10)
         _local.conn.row_factory = sqlite3.Row
@@ -80,10 +80,10 @@ def _get_conn() -> sqlite3.Connection:
     return _local.conn
 
 
-# --- 세션 상태 ---
+# --- Session state ---
 
 def set_session(name: str, **kwargs):
-    """세션 상태 upsert."""
+    """Upsert session state."""
     conn = _get_conn()
     kwargs["updated_at"] = time.time()
     # upsert
@@ -100,14 +100,14 @@ def set_session(name: str, **kwargs):
 
 
 def get_session(name: str) -> dict:
-    """세션 상태 조회. 없으면 빈 dict."""
+    """Get session state. Empty dict if missing."""
     conn = _get_conn()
     row = conn.execute("SELECT * FROM sessions WHERE name=?", (name,)).fetchone()
     return dict(row) if row else {}
 
 
 def get_all_sessions() -> dict:
-    """전체 세션 상태. {name: {status, session_id, ...}}"""
+    """All session states. {name: {status, session_id, ...}}"""
     conn = _get_conn()
     rows = conn.execute("SELECT * FROM sessions").fetchall()
     return {r["name"]: dict(r) for r in rows}
@@ -119,10 +119,10 @@ def delete_session(name: str):
     conn.commit()
 
 
-# --- 명령 큐 (flag 파일 대체) ---
+# --- Command queue (replaces flag files) ---
 
 def push_command(target: str, command: str, args: str = ""):
-    """명령 큐에 추가."""
+    """Add to the command queue."""
     conn = _get_conn()
     conn.execute(
         "INSERT INTO commands (target, command, args, created_at) VALUES (?, ?, ?, ?)",
@@ -131,7 +131,7 @@ def push_command(target: str, command: str, args: str = ""):
 
 
 def pop_command(target: str) -> dict:
-    """target에 대한 미처리 명령 1개 가져오기 (FIFO). 없으면 빈 dict."""
+    """Fetch one pending command for target (FIFO). Empty dict if none."""
     conn = _get_conn()
     row = conn.execute(
         "SELECT * FROM commands WHERE target=? AND processed=0 ORDER BY id LIMIT 1",
@@ -144,7 +144,7 @@ def pop_command(target: str) -> dict:
 
 
 def pop_commands(target: str) -> list:
-    """target에 대한 미처리 명령 전부 가져오기."""
+    """Fetch all pending commands for target."""
     conn = _get_conn()
     rows = conn.execute(
         "SELECT * FROM commands WHERE target=? AND processed=0 ORDER BY id",
@@ -157,7 +157,7 @@ def pop_commands(target: str) -> list:
 
 
 def has_pending_command(target: str, command: str = "") -> bool:
-    """미처리 명령이 있는지 확인."""
+    """Check whether there are pending commands."""
     conn = _get_conn()
     if command:
         row = conn.execute(
@@ -170,7 +170,7 @@ def has_pending_command(target: str, command: str = "") -> bool:
     return row is not None
 
 
-# --- relay 설정 ---
+# --- Relay settings ---
 
 def set_relay(bot_id: str, chat_id: str, enabled: bool = True):
     conn = _get_conn()
@@ -188,7 +188,7 @@ def is_relay_enabled(bot_id: str, chat_id: str) -> bool:
     return bool(row and row["enabled"])
 
 
-# --- 폴링 offset ---
+# --- Polling offset ---
 
 def set_offset(bot_id: str, offset: int):
     conn = _get_conn()
@@ -204,7 +204,7 @@ def get_offset(bot_id: str) -> int:
     return row["offset_val"] if row else 0
 
 
-# --- TeleClaw 전역 상태 ---
+# --- TeleClaw global state ---
 
 def set_state(key: str, value: str):
     conn = _get_conn()
@@ -220,10 +220,10 @@ def get_state(key: str, default: str = "") -> str:
     return row["value"] if row else default
 
 
-# --- 일시정지 상태 ---
+# --- Pause state ---
 
 def is_paused(name: str) -> bool:
-    """세션이 일시정지 상태인지."""
+    """Whether the session is paused."""
     s = get_session(name)
     return s.get("status") == "paused"
 
@@ -237,10 +237,10 @@ def set_paused(name: str, paused: bool = True):
             set_session(name, status="idle")
 
 
-# --- 정리 ---
+# --- Cleanup ---
 
 def cleanup_old_commands(max_age_hours: int = 24):
-    """오래된 처리 완료 명령 삭제."""
+    """Delete old processed commands."""
     conn = _get_conn()
     cutoff = time.time() - max_age_hours * 3600
     conn.execute("DELETE FROM commands WHERE processed=1 AND created_at<?", (cutoff,))

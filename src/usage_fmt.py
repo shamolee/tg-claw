@@ -1,10 +1,12 @@
-"""usage 포맷 유틸 — commands.py, teleclaw_ctl.py에서 공유."""
+"""Usage formatting helpers, shared by commands.py and teleclaw_ctl.py."""
 
 from datetime import datetime, timezone
 
+from .messages import msg
+
 
 def usage_bar(pct, emoji=True):
-    """20칸 바 포맷. emoji=True면 색상 아이콘 포함."""
+    """Format a 20-cell bar. With emoji=True, includes a colored icon."""
     filled = round(pct / 5)
     empty = 20 - filled
     bar = f"{'|' * filled}{'.' * empty} {pct:.0f}%"
@@ -20,7 +22,7 @@ def usage_bar(pct, emoji=True):
 
 
 def reset_str(bucket):
-    """리셋 시간까지 남은 시간 문자열."""
+    """Time remaining until the reset, as a string."""
     reset_at = bucket.get("resets_at", "") if bucket else ""
     if not reset_at:
         return ""
@@ -28,7 +30,7 @@ def reset_str(bucket):
         dt = datetime.fromisoformat(reset_at)
         remaining = (dt - datetime.now(timezone.utc)).total_seconds()
         if remaining <= 0:
-            return "(리셋됨)"
+            return msg("usage_reset_done")
         rm, rs = divmod(int(remaining), 60)
         rh, rm = divmod(rm, 60)
         rd, rh = divmod(rh, 24)

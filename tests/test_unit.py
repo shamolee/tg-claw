@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""TeleClaw 유닛테스트 — 순수 함수 격리 테스트."""
+"""TeleClaw unit tests — isolated pure-function tests."""
 
 import sys
 import os
 import unittest
 from dataclasses import dataclass
 
-# 패키지 import를 위해 경로 추가
+# Add path for package imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 # ============================================================
-# telegram_api 함수 테스트
+# telegram_api function tests
 # ============================================================
 
 from src.telegram_api import (
@@ -183,18 +183,18 @@ class TestSplitMessage(unittest.TestCase):
         self.assertTrue(any("(1/" in c for c in result))
 
     def test_forced_split(self):
-        # 분할 지점 없는 긴 텍스트
+        # Long text with no split points
         text = "a" * 200
         result = _split_message(text, max_len=50)
         self.assertGreater(len(result), 1)
         for chunk in result:
-            # 청크 번호 제외하고 원본이 max_len 이하인지 확인
+            # Excluding the chunk number, content is within max_len
             base = chunk.split("\n\n(")[0] if "\n\n(" in chunk else chunk
             self.assertLessEqual(len(base), 50)
 
 
 # ============================================================
-# teleclaw.py 함수 테스트
+# teleclaw.py function tests
 # ============================================================
 
 class TestToolSummary(unittest.TestCase):
@@ -244,7 +244,7 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertIn("Grep: b.py", result)
 
     def test_four_tools_not_truncated(self):
-        """4개 이하는 전부 표시"""
+        """4 or fewer are all shown"""
         tools = ["🔧 Read: a.py", "🔧 Grep: b.py", "🔧 Edit: c.py", "🔧 Bash: ls"]
         result = self.func(tools)
         self.assertIn("Read: a.py", result)
@@ -252,7 +252,7 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertNotIn("...", result)
 
     def test_five_plus_tools_truncated(self):
-        """5개 이상은 처음2 + ...+N + 마지막1로 축약"""
+        """5 or more collapse to first 2 + ...+N + last 1"""
         tools = ["🔧 Read: a", "🔧 Grep: b", "🔧 Edit: c", "🔧 Bash: d", "🔧 Write: e"]
         result = self.func(tools)
         self.assertIn("Read: a", result)
@@ -262,7 +262,7 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertNotIn("Edit: c", result)
 
     def test_many_tools_truncated(self):
-        """10개 도구 축약"""
+        """Collapse 10 tools"""
         tools = [f"🔧 Tool{i}: x" for i in range(10)]
         result = self.func(tools)
         self.assertIn("...+7", result)
@@ -270,13 +270,13 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertIn("Tool9: x", result)
 
     def test_format_tool_line_single(self):
-        """도구 1개 — 전부 표시"""
+        """1 tool — shown in full"""
         result = self.func(["🔧 Read: only.py"])
         self.assertIn("Read: only.py", result)
         self.assertNotIn("...", result)
 
     def test_format_tool_line_short(self):
-        """도구 4개 이하 — 전부 표시"""
+        """4 or fewer tools — shown in full"""
         tools = ["🔧 Read: a.py", "🔧 Grep: b.py", "🔧 Edit: c.py"]
         result = self.func(tools)
         self.assertIn("Read: a.py", result)
@@ -285,7 +285,7 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertNotIn("...", result)
 
     def test_format_tool_line_exact_four(self):
-        """정확히 4개 — 전부 표시 (축약 없음)"""
+        """Exactly 4 — shown in full (no collapsing)"""
         tools = ["🔧 Read: a.py", "🔧 Grep: b.py", "🔧 Edit: c.py", "🔧 Bash: ls"]
         result = self.func(tools)
         self.assertIn("Read: a.py", result)
@@ -295,7 +295,7 @@ class TestFormatToolLine(unittest.TestCase):
         self.assertNotIn("...", result)
 
     def test_format_tool_line_long(self):
-        """도구 6개 → 처음2 + ...+3 + 마지막1 축약"""
+        """6 tools → first 2 + ...+3 + last 1"""
         tools = [
             "🔧 Read: a", "🔧 Grep: b", "🔧 Edit: c",
             "🔧 Bash: d", "🔧 Write: e", "🔧 Glob: f",
@@ -347,7 +347,7 @@ class TestAssessHealth(unittest.TestCase):
             "restarting": False,
             "busy_since": 0,
             "start_time": time.time() - 300,
-            "client": "fake",  # client가 None이면 DEAD 판정
+            "client": "fake",  # client=None would be judged DEAD
         }
         defaults.update(kwargs)
         state = self.SessionState(name=defaults["name"], config=defaults["config"])
@@ -387,7 +387,7 @@ class TestAssessHealth(unittest.TestCase):
 
 
 # ============================================================
-# wrapper 함수 테스트
+# wrapper function tests
 # ============================================================
 
 class TestHandleEmergencyCommand(unittest.TestCase):
@@ -425,41 +425,41 @@ class TestHandleEmergencyCommand(unittest.TestCase):
 
 
 # ============================================================
-# 실행
+# Run
 # ============================================================
-# commands.py — /restart, /reset 시 pause 해제
+# commands.py — /restart, /reset clear pause
 # ============================================================
 
 from src import state_db as db
 
 class TestCommandsPauseRelease(unittest.TestCase):
-    """restart/reset 명령 시 pause 해제 확인 (DB 기반)."""
+    """restart/reset commands clear pause (DB-based)."""
 
     @classmethod
     def setUpClass(cls):
         db.init()
 
     def test_restart_removes_pause(self):
-        """pause 상태에서 /restart → 해제."""
+        """/restart while paused → unpaused."""
         db.set_paused("TestSession", True)
         self.assertTrue(db.is_paused("TestSession"))
         db.set_paused("TestSession", False)
         self.assertFalse(db.is_paused("TestSession"))
 
     def test_reset_removes_pause(self):
-        """pause 상태에서 /reset → 해제."""
+        """/reset while paused → unpaused."""
         db.set_paused("TestReset", True)
         self.assertTrue(db.is_paused("TestReset"))
         db.set_paused("TestReset", False)
         self.assertFalse(db.is_paused("TestReset"))
 
     def test_no_error_without_pause(self):
-        """pause 아닌 상태에서도 에러 없음."""
+        """No error when not paused."""
         self.assertFalse(db.is_paused("NoExist"))
 
 
 # ============================================================
-# teleclaw.py — _should_auto_resume 판단 로직
+# teleclaw.py — _should_auto_resume decision logic
 # ============================================================
 
 class TestShouldAutoResume(unittest.TestCase):
@@ -485,50 +485,50 @@ class TestShouldAutoResume(unittest.TestCase):
         return state
 
     def test_normal_resume(self):
-        """기본 resume 모드 → True"""
+        """Default resume mode → True"""
         state = self._make_state()
         self.assertTrue(self.supervisor._should_auto_resume(state))
 
     def test_no_resume_marked(self):
-        """no_resume 마킹 → False (1회만)"""
+        """no_resume flag → False (once only)"""
         state = self._make_state(no_resume=True)
         self.assertFalse(self.supervisor._should_auto_resume(state))
-        # 한 번 스킵 후 플래그 리셋됨
+        # Flag resets after skipping once
         self.assertFalse(state.no_resume_before_restart)
 
     def test_reset_mode(self):
-        """reset 모드 → False"""
+        """reset mode → False"""
         state = self._make_state(mode="reset")
         self.assertFalse(self.supervisor._should_auto_resume(state))
 
     def test_no_session_id(self):
-        """session_id 없음 → False"""
+        """No session_id → False"""
         state = self._make_state(session_id="")
         self.assertFalse(self.supervisor._should_auto_resume(state))
 
     def test_resume_count_exceeded(self):
-        """2회 초과 → False"""
+        """More than 2 → False"""
         state = self._make_state(resume_count=2)
         self.assertFalse(self.supervisor._should_auto_resume(state))
 
     def test_resume_count_under_limit(self):
-        """1회 → True"""
+        """Once → True"""
         state = self._make_state(resume_count=1)
         self.assertTrue(self.supervisor._should_auto_resume(state))
 
 
 # ============================================================
-# teleclaw.py — 재시작 중 에러 스킵
+# teleclaw.py — skip errors while restarting
 # ============================================================
 
 class TestRestartingErrorSkip(unittest.TestCase):
-    """state.restarting=True일 때 에러 재시도를 스킵하는지 확인."""
+    """Error retries are skipped when state.restarting=True."""
 
     def test_restarting_skips_retry(self):
-        """restarting 상태에서 에러 발생 시 retry_error 증가 안 함."""
+        """Error while restarting does not increment retry_error."""
         msg_data = {"text": "리셋", "retry_error": 0}
         state_restarting = True
-        # teleclaw.py 로직 시뮬레이션
+        # Simulate teleclaw.py logic
         if state_restarting:
             skipped = True
         else:
@@ -538,7 +538,7 @@ class TestRestartingErrorSkip(unittest.TestCase):
         self.assertEqual(msg_data["retry_error"], 0)
 
     def test_not_restarting_does_retry(self):
-        """restarting이 아닌 상태에서 에러 → retry_error 증가."""
+        """Error while not restarting → retry_error increments."""
         msg_data = {"text": "테스트", "retry_error": 0}
         state_restarting = False
         if state_restarting:
@@ -551,14 +551,14 @@ class TestRestartingErrorSkip(unittest.TestCase):
 
 
 # ============================================================
-# logging_utils.py — 7일 초과 아카이브 삭제
+# logging_utils.py — delete archives older than 7 days
 # ============================================================
 
 class TestArchiveCleanup(unittest.TestCase):
-    """아카이브 로그 7일 보관 확인."""
+    """Archive logs are kept for 7 days."""
 
     def test_archive_lines_import(self):
-        """_archive_lines 함수 존재 확인."""
+        """_archive_lines function exists."""
         from src.logging_utils import _archive_lines
         self.assertTrue(callable(_archive_lines))
 
@@ -566,6 +566,6 @@ class TestArchiveCleanup(unittest.TestCase):
 # ============================================================
 
 if __name__ == "__main__":
-    # supervisor 디렉토리에서 실행
+    # Run from the supervisor directory
     os.chdir(os.path.join(os.path.dirname(__file__), ".."))
     unittest.main(verbosity=2)

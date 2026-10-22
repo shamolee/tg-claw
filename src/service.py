@@ -1,4 +1,4 @@
-"""시스템 서비스 등록/해제 — systemd (Linux) / Task Scheduler (Windows)"""
+"""System service install/uninstall: systemd (Linux) / Task Scheduler (Windows)"""
 
 import os
 import shutil
@@ -93,12 +93,12 @@ def _schtasks_install():
     work_dir = str(_get_service_dir())
     task_name = SERVICE_NAME
 
-    # 기존 태스크 제거
+    # Remove the existing task
     subprocess.run(
         ["schtasks", "/delete", "/tn", task_name, "/f"],
         capture_output=True)
 
-    # 로그인 시 자동 시작
+    # Start automatically at logon
     subprocess.run([
         "schtasks", "/create",
         "/tn", task_name,
@@ -113,7 +113,7 @@ def _schtasks_install():
     print(f"  schtasks /run /tn {task_name}")
     print(f"  schtasks /end /tn {task_name}")
 
-    # 즉시 시작
+    # Start right away
     subprocess.run(["schtasks", "/run", "/tn", task_name], capture_output=True)
 
 
@@ -138,10 +138,10 @@ def _schtasks_logs(n: int = 50):
         print(line)
 
 
-# --- 공통 인터페이스 ---
+# --- Common interface ---
 
 def install():
-    """시스템 서비스 등록 + 자동 시작."""
+    """Register the system service and start it."""
     if sys.platform == "win32":
         _schtasks_install()
     else:
@@ -149,7 +149,7 @@ def install():
 
 
 def uninstall():
-    """시스템 서비스 해제."""
+    """Unregister the system service."""
     if sys.platform == "win32":
         _schtasks_uninstall()
     else:
@@ -157,7 +157,7 @@ def uninstall():
 
 
 def status():
-    """서비스 상태 확인."""
+    """Show service status."""
     if sys.platform == "win32":
         _schtasks_status()
     else:
@@ -165,7 +165,7 @@ def status():
 
 
 def logs(n: int = 50):
-    """서비스 로그 조회."""
+    """Show service logs."""
     if sys.platform == "win32":
         _schtasks_logs(n)
     else:

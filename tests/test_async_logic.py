@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""TeleClaw 비동기 비즈니스 로직 테스트.
+"""TeleClaw async business logic tests.
 
-대상:
-  1. _restart_session — 핵심 복구 로직
-  2. _assess_health — 세션 상태 진단 (추가 케이스)
-  3. channel_telegram.py — Channel 인터페이스
-  4. state_db.py — DB 함수
-  5. commands.py — 명령어 핸들러
+Covers:
+  1. _restart_session — core recovery logic
+  2. _assess_health — session health check (extra cases)
+  3. channel_telegram.py — Channel interface
+  4. state_db.py — DB functions
+  5. commands.py — command handlers
 """
 
 import sys
@@ -23,11 +23,11 @@ from src import state_db as db
 
 
 # ============================================================
-# 헬퍼: TeleClaw 인스턴스 + SessionState 팩토리
+# Helpers: TeleClaw instance + SessionState factory
 # ============================================================
 
 def _make_teleclaw():
-    """외부 의존성 없이 TeleClaw 인스턴스 생성."""
+    """Create a TeleClaw instance without external dependencies."""
     from src.teleclaw import TeleClaw
     tc = TeleClaw()
     tc._shutdown = False
@@ -36,7 +36,7 @@ def _make_teleclaw():
 
 
 def _make_state(name="Test", **kwargs):
-    """테스트용 SessionState 생성."""
+    """Create a SessionState for tests."""
     config = {"bot_token": "123:fake", "cwd": ".", "bot_id": "123"}
     state = SessionState(name=name, config=config)
     state.channel = MagicMock()
@@ -62,11 +62,11 @@ def _make_state(name="Test", **kwargs):
 
 
 # ============================================================
-# 1. _restart_session 테스트
+# 1. _restart_session tests
 # ============================================================
 
 class TestRestartSession(unittest.TestCase):
-    """_restart_session 핵심 복구 로직 테스트."""
+    """Tests for _restart_session core recovery logic."""
 
     def setUp(self):
         self.tc = _make_teleclaw()
@@ -79,21 +79,21 @@ class TestRestartSession(unittest.TestCase):
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_skip_if_already_restarting(self):
-        """이미 재시작 중이면 스킵."""
+        """Skip if already restarting."""
         state = _make_state(restarting=True)
         self._run(self.tc._restart_session(state, "test"))
-        # _connect_session 호출 안 됨
+        # _connect_session not called
         self.tc._connect_session.assert_not_awaited()
 
     def test_restart_limit_exceeded_not_force(self):
-        """재시작 한도(3회/30분) 초과 시 force 아니면 스킵."""
+        """Over the restart limit (3/30min) → skip unless force."""
         now = time.time()
         state = _make_state(restart_history=[now - 10, now - 20, now - 30])
         self._run(self.tc._restart_session(state, "test", force=False))
         self.tc._connect_session.assert_not_awaited()
 
     def test_restart_limit_bypass_with_force(self):
-        """force=True면 한도 초과해도 재시작."""
+        """force=True restarts even over the limit."""
         now = time.time()
         state = _make_state(restart_history=[now - 10, now - 20, now - 30])
 
@@ -105,7 +105,7 @@ class TestRestartSession(unittest.TestCase):
         self.tc._connect_session.assert_awaited_once()
 
     def test_resume_mode_sets_last_restart_mode(self):
-        """resume 모드 재시작 시 last_restart_mode 설정."""
+        """resume-mode restart sets last_restart_mode."""
         state = _make_state()
 
         async def fake_connect(s, mode="resume"):
@@ -114,10 +114,10 @@ class TestRestartSession(unittest.TestCase):
 
         self._run(self.tc._restart_session(state, "test", mode="resume", force=True))
         self.assertEqual(state.last_restart_mode, "resume")
-        self.assertFalse(state.restarting)  # finally에서 리셋
+        self.assertFalse(state.restarting)  # reset in finally
 
     def test_reset_mode_sets_last_restart_mode(self):
-        """reset 모드 재시작 시 last_restart_mode 설정."""
+        """reset-mode restart sets last_restart_mode."""
         state = _make_state()
 
         async def fake_connect(s, mode="reset"):
@@ -128,7 +128,7 @@ class TestRestartSession(unittest.TestCase):
         self.assertEqual(state.last_restart_mode, "reset")
 
     def test_restart_increments_count(self):
-        """재시작 성공 시 restart_count 증가."""
+        """Successful restart increments restart_count."""
         state = _make_state(restart_count=0)
 
         async def fake_connect(s, mode="resume"):
@@ -139,7 +139,7 @@ class TestRestartSession(unittest.TestCase):
         self.assertEqual(state.restart_count, 1)
 
     def test_client_set_to_none_on_restart(self):
-        """재시작 시 기존 client를 None으로 설정."""
+        """Restart sets the old client to None."""
         old_client = MagicMock()
         state = _make_state()
         state.client = old_client
@@ -149,12 +149,12 @@ class TestRestartSession(unittest.TestCase):
         self.tc._connect_session = AsyncMock(side_effect=fake_connect)
 
         self._run(self.tc._restart_session(state, "test", force=True))
-        # _safe_disconnect가 호출됨 (asyncio.create_task 대신 직접 확인은 어려움)
-        # 대신 connected=False로 전환 후 reconnect 확인
+        # _safe_disconnect is called (hard to verify directly since it goes through asyncio.create_task)
+        # Instead, check connected=False then reconnect
         self.tc._connect_session.assert_awaited_once()
 
     def test_restarting_flag_reset_on_exception(self):
-        """_connect_session 실패해도 restarting 플래그 리셋."""
+        """restarting flag resets even if _connect_session fails."""
         state = _make_state()
         self.tc._connect_session = AsyncMock(side_effect=RuntimeError("fail"))
 
@@ -163,7 +163,7 @@ class TestRestartSession(unittest.TestCase):
         self.assertFalse(state.restarting)
 
     def test_was_busy_before_restart_from_stuck(self):
-        """STUCK 사유면 was_busy_before_restart=True."""
+        """STUCK reason → was_busy_before_restart=True."""
         state = _make_state(busy=False)
 
         async def fake_connect(s, mode="resume"):
@@ -174,8 +174,8 @@ class TestRestartSession(unittest.TestCase):
         self.assertTrue(state.was_busy_before_restart)
 
     def test_old_restart_history_cleaned(self):
-        """RESTART_WINDOW 밖의 기록은 정리."""
-        old_ts = time.time() - 5000  # 윈도우 밖
+        """Records outside RESTART_WINDOW are pruned."""
+        old_ts = time.time() - 5000  # outside the window
         state = _make_state(restart_history=[old_ts])
 
         async def fake_connect(s, mode="resume"):
@@ -183,40 +183,40 @@ class TestRestartSession(unittest.TestCase):
         self.tc._connect_session = AsyncMock(side_effect=fake_connect)
 
         self._run(self.tc._restart_session(state, "test", force=True))
-        # old_ts는 제거되고, 새 기록 1개만 남음
+        # old_ts is removed; only the new record remains
         self.assertEqual(len(state.restart_history), 1)
         self.assertNotEqual(state.restart_history[0], old_ts)
 
 
 # ============================================================
-# 2. _assess_health 추가 케이스
+# 2. _assess_health extra cases
 # ============================================================
 
 class TestAssessHealthExtended(unittest.TestCase):
-    """_assess_health 추가 테스트 — 기존 test_unit.py 보완."""
+    """Extra _assess_health tests — complements test_unit.py."""
 
     def setUp(self):
         self.tc = _make_teleclaw()
 
     def test_recently_started_busy_not_stuck(self):
-        """시작 직후(HEALTH_CHECK_INTERVAL 이내)는 busy여도 STUCK 아닌 OK."""
+        """Right after start (within HEALTH_CHECK_INTERVAL), busy is OK, not STUCK."""
         state = _make_state(
             connected=True, busy=True,
-            busy_since=time.time() - 2000,  # 오래 busy
-            start_time=time.time() - 10,  # 10초 전 시작
+            busy_since=time.time() - 2000,  # busy for a long time
+            start_time=time.time() - 10,  # started 10s ago
         )
-        # elapsed < HEALTH_CHECK_INTERVAL이면 OK 반환
+        # elapsed < HEALTH_CHECK_INTERVAL returns OK
         self.assertEqual(self.tc._assess_health(state), "OK")
 
     def test_queue_not_empty_and_not_busy_is_stuck(self):
-        """큐에 메시지 있는데 busy 아닌 상태 → STUCK."""
+        """Messages queued but not busy → STUCK."""
         state = _make_state(start_time=time.time() - 300)
         state.message_queue.put_nowait({"text": "hello"})
         state.busy = False
         self.assertEqual(self.tc._assess_health(state), "STUCK")
 
     def test_busy_but_within_threshold_ok(self):
-        """busy이지만 STUCK_THRESHOLD 이내 → OK."""
+        """Busy but within STUCK_THRESHOLD → OK."""
         state = _make_state(
             busy=True, busy_since=time.time() - 60,
             start_time=time.time() - 300,
@@ -224,7 +224,7 @@ class TestAssessHealthExtended(unittest.TestCase):
         self.assertEqual(self.tc._assess_health(state), "OK")
 
     def test_busy_exceeding_threshold_stuck(self):
-        """busy가 STUCK_THRESHOLD 초과 → STUCK."""
+        """Busy beyond STUCK_THRESHOLD → STUCK."""
         state = _make_state(
             busy=True, busy_since=time.time() - 2000,
             start_time=time.time() - 3000,
@@ -237,7 +237,7 @@ class TestAssessHealthExtended(unittest.TestCase):
         self.assertEqual(self.tc._assess_health(state), "DEAD")
 
     def test_disconnected_but_restarting_ok(self):
-        """connected=False이지만 restarting=True → OK."""
+        """connected=False but restarting=True → OK."""
         state = _make_state(connected=False, restarting=True, start_time=time.time() - 300)
         self.assertEqual(self.tc._assess_health(state), "OK")
 
@@ -247,17 +247,17 @@ class TestAssessHealthExtended(unittest.TestCase):
         self.assertEqual(self.tc._assess_health(state), "DEAD")
 
     def test_empty_queue_not_busy_ok(self):
-        """큐 비어있고 busy 아님 → OK."""
+        """Empty queue and not busy → OK."""
         state = _make_state(start_time=time.time() - 300)
         self.assertEqual(self.tc._assess_health(state), "OK")
 
 
 # ============================================================
-# 3. channel_telegram.py 테스트
+# 3. channel_telegram.py tests
 # ============================================================
 
 class TestTelegramChannelProperties(unittest.TestCase):
-    """TelegramChannel 기본 속성 테스트."""
+    """TelegramChannel basic attribute tests."""
 
     def setUp(self):
         from src.channel_telegram import TelegramChannel
@@ -289,7 +289,7 @@ class TestTelegramChannelProperties(unittest.TestCase):
 
 
 class TestTelegramChannelNoAhttp(unittest.TestCase):
-    """ahttp 없을 때 각 메서드가 안전하게 빈 값 반환."""
+    """Without ahttp, each method safely returns an empty value."""
 
     def setUp(self):
         from src.channel_telegram import TelegramChannel
@@ -334,13 +334,13 @@ class TestTelegramChannelNoAhttp(unittest.TestCase):
 
 
 class TestTelegramChannelMocked(unittest.TestCase):
-    """mock된 ahttp로 send/edit/delete/react 테스트."""
+    """send/edit/delete/react tests with a mocked ahttp."""
 
     def _run(self, coro):
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_poll_parses_updates(self):
-        """poll이 텔레그램 update를 올바르게 파싱."""
+        """poll parses Telegram updates correctly."""
         from src.channel_telegram import TelegramChannel
 
         mock_ahttp = AsyncMock()
@@ -380,11 +380,11 @@ class TestTelegramChannelMocked(unittest.TestCase):
         # edited_message
         self.assertEqual(messages[1]["text"], "edited")
         self.assertTrue(messages[1]["_raw"]["_is_edited"])
-        # offset 업데이트
+        # offset updated
         self.assertEqual(ch.get_offset(), 102)
 
     def test_poll_with_photo_and_document(self):
-        """photo/document 첨부 파싱."""
+        """Parse photo/document attachments."""
         from src.channel_telegram import TelegramChannel
 
         mock_ahttp = AsyncMock()
@@ -420,13 +420,13 @@ class TestTelegramChannelMocked(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0]["text"], "사진 캡션")
         self.assertEqual(len(messages[0]["files"]), 2)
-        # photo는 마지막(가장 큰) 것
+        # photo uses the last (largest) size
         self.assertEqual(messages[0]["files"][0]["file_id"], "large")
         self.assertEqual(messages[0]["files"][1]["type"], "document")
         self.assertEqual(messages[0]["files"][1]["name"], "test.pdf")
 
     def test_poll_not_ok_returns_empty(self):
-        """API가 ok=false 반환 시 빈 리스트."""
+        """API returns ok=false → empty list."""
         from src.channel_telegram import TelegramChannel
 
         mock_ahttp = AsyncMock()
@@ -439,7 +439,7 @@ class TestTelegramChannelMocked(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_poll_exception_returns_empty(self):
-        """poll 중 예외 발생 시 빈 리스트."""
+        """Exception during poll → empty list."""
         from src.channel_telegram import TelegramChannel
 
         mock_ahttp = AsyncMock()
@@ -450,14 +450,14 @@ class TestTelegramChannelMocked(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_format_calls_md_to_html(self):
-        """format()이 마크다운을 HTML로 변환."""
+        """format() converts markdown to HTML."""
         from src.channel_telegram import TelegramChannel
         ch = TelegramChannel("123:fake", "456")
         result = ch.format("**bold**")
         self.assertIn("<b>bold</b>", result)
 
     def test_split_delegates(self):
-        """split()이 _split_message를 호출."""
+        """split() calls _split_message."""
         from src.channel_telegram import TelegramChannel
         ch = TelegramChannel("123:fake", "456")
         result = ch.split("short text")
@@ -465,18 +465,18 @@ class TestTelegramChannelMocked(unittest.TestCase):
 
 
 # ============================================================
-# 4. state_db.py 테스트
+# 4. state_db.py tests
 # ============================================================
 
 class TestStateDB(unittest.TestCase):
-    """state_db 함수 테스트 — in-memory DB."""
+    """state_db function tests — in-memory DB."""
 
     @classmethod
     def setUpClass(cls):
         db.init(":memory:")
 
     def tearDown(self):
-        """각 테스트 후 데이터 정리."""
+        """Clean up data after each test."""
         conn = db._get_conn()
         conn.execute("DELETE FROM commands")
         conn.execute("DELETE FROM sessions")
@@ -501,7 +501,7 @@ class TestStateDB(unittest.TestCase):
     def test_pop_marks_processed(self):
         db.push_command("s1", "restart")
         db.pop_command("s1")
-        # 다시 pop하면 빈 dict
+        # popping again returns an empty dict
         self.assertEqual(db.pop_command("s1"), {})
 
     def test_pop_fifo_order(self):
@@ -518,7 +518,7 @@ class TestStateDB(unittest.TestCase):
         self.assertEqual(len(cmds), 3)
         self.assertEqual(cmds[0]["command"], "a")
         self.assertEqual(cmds[2]["command"], "c")
-        # 다시 pop하면 빈 리스트
+        # popping again returns an empty list
         self.assertEqual(db.pop_commands("s1"), [])
 
     def test_has_pending_command(self):
@@ -582,7 +582,7 @@ class TestStateDB(unittest.TestCase):
         self.assertFalse(db.is_paused("Ghost"))
 
     def test_set_paused_false_only_if_paused(self):
-        """paused가 아닌 상태에서 set_paused(False)는 status 변경 안 함."""
+        """set_paused(False) when not paused leaves status unchanged."""
         db.set_session("Run", status="running")
         db.set_paused("Run", False)
         s = db.get_session("Run")
@@ -633,23 +633,23 @@ class TestStateDB(unittest.TestCase):
 
     def test_cleanup_old_commands(self):
         db.push_command("s1", "old")
-        db.pop_command("s1")  # processed=1로 표시
-        # created_at을 과거로 수정
+        db.pop_command("s1")  # marks processed=1
+        # move created_at into the past
         conn = db._get_conn()
         conn.execute("UPDATE commands SET created_at=?", (time.time() - 100000,))
         conn.commit()
         db.cleanup_old_commands(max_age_hours=1)
-        # 삭제되었어야 함
+        # should have been deleted
         row = conn.execute("SELECT count(*) as c FROM commands").fetchone()
         self.assertEqual(row["c"], 0)
 
 
 # ============================================================
-# 5. commands.py 테스트
+# 5. commands.py tests
 # ============================================================
 
 class TestHandleCommand(unittest.TestCase):
-    """commands.handle_command 테스트."""
+    """commands.handle_command tests."""
 
     @classmethod
     def setUpClass(cls):
@@ -660,26 +660,26 @@ class TestHandleCommand(unittest.TestCase):
         self.channel = MagicMock()
         self.channel.send_sync = MagicMock(return_value="1")
 
-        # 세션 등록
+        # register session
         state = _make_state(name="TestProj")
         state.config["bot_token"] = "111:aaa"
         self.tc.sessions["TestProj"] = state
         self.tc._start_time = time.time() - 3600
 
     def test_non_command_returns_false(self):
-        """/ 로 시작하지 않으면 False."""
+        """Not starting with / → False."""
         from src.commands import handle_command
         result = handle_command(self.tc, "hello", "111:aaa", self.channel)
         self.assertFalse(result)
 
     def test_unknown_command_returns_false(self):
-        """/unknown 명령 → False."""
+        """/unknown command → False."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/unknown", "111:aaa", self.channel)
         self.assertFalse(result)
 
     def test_help_returns_true(self):
-        """/help → True, send_sync 호출."""
+        """/help → True, calls send_sync."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/help", "111:aaa", self.channel)
         self.assertTrue(result)
@@ -693,14 +693,14 @@ class TestHandleCommand(unittest.TestCase):
         self.channel.send_sync.assert_called()
 
     def test_mode_minimal(self):
-        """/mode minimal → output_level 변경."""
+        """/mode minimal → changes output_level."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/mode minimal", "111:aaa", self.channel)
         self.assertTrue(result)
         self.assertEqual(self.tc.output_level, "minimal")
 
     def test_mode_normal(self):
-        """/mode normal → output_level 변경."""
+        """/mode normal → changes output_level."""
         from src.commands import handle_command
         handle_command(self.tc, "/mode minimal", "111:aaa", self.channel)
         result = handle_command(self.tc, "/mode normal", "111:aaa", self.channel)
@@ -708,50 +708,50 @@ class TestHandleCommand(unittest.TestCase):
         self.assertEqual(self.tc.output_level, "normal")
 
     def test_mode_no_arg_shows_current(self):
-        """/mode만 → 현재 모드 표시."""
+        """/mode alone → shows current mode."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/mode", "111:aaa", self.channel)
         self.assertTrue(result)
         self.channel.send_sync.assert_called()
 
     def test_mode_invalid_shows_current(self):
-        """/mode invalid → 현재 모드 표시 (변경 안 함)."""
+        """/mode invalid → shows current mode (no change)."""
         from src.commands import handle_command
         self.tc.output_level = "normal"
         handle_command(self.tc, "/mode invalid", "111:aaa", self.channel)
         self.assertEqual(self.tc.output_level, "normal")
 
     def test_stop_blocked(self):
-        """/stop은 차단."""
+        """/stop is blocked."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/stop", "111:aaa", self.channel)
         self.assertTrue(result)
 
     def test_kill_blocked(self):
-        """/kill은 차단."""
+        """/kill is blocked."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/kill", "111:aaa", self.channel)
         self.assertTrue(result)
 
     def test_pause_command(self):
-        """/pause → 세션 일시정지."""
+        """/pause → pauses the session."""
         from src.commands import handle_command
         self.tc._safe_disconnect = AsyncMock()
         with patch("src.commands.asyncio.create_task"):
             result = handle_command(self.tc, "/pause TestProj", "111:aaa", self.channel)
         self.assertTrue(result)
         self.assertTrue(db.is_paused("TestProj"))
-        # 정리
+        # cleanup
         db.set_paused("TestProj", False)
 
     def test_pause_unknown_session(self):
-        """/pause 없는 세션 → 에러 메시지."""
+        """/pause with unknown session → error message."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/pause NoExist", "111:aaa", self.channel)
         self.assertTrue(result)
 
     def test_log_command(self):
-        """/log → True (파일 없어도 에러 처리)."""
+        """/log → True (handles missing file)."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/log", "111:aaa", self.channel)
         self.assertTrue(result)
@@ -763,7 +763,7 @@ class TestHandleCommand(unittest.TestCase):
         self.assertTrue(result)
 
     def test_ask_no_arg(self):
-        """/ask 인자 없이 → 사용법 안내."""
+        """/ask without args → usage hint."""
         from src.commands import handle_command
         result = handle_command(self.tc, "/ask", "111:aaa", self.channel)
         self.assertTrue(result)
@@ -771,7 +771,7 @@ class TestHandleCommand(unittest.TestCase):
 
 
 class TestHandleCommandShortcuts(unittest.TestCase):
-    """명령어 단축키 테스트."""
+    """Command shortcut tests."""
 
     @classmethod
     def setUpClass(cls):
@@ -803,7 +803,7 @@ class TestHandleCommandShortcuts(unittest.TestCase):
 
     def test_u_is_usage(self):
         from src.commands import handle_command
-        # _get_usage는 credentials 필요하므로 mock
+        # _get_usage needs credentials, so mock it
         with patch("src.commands._get_usage", return_value="usage info"):
             result = handle_command(self.tc, "/u", "111:aaa", self.channel)
         self.assertTrue(result)
@@ -818,48 +818,48 @@ class TestHandleCommandShortcuts(unittest.TestCase):
 
 
 # ============================================================
-# _should_auto_resume 추가 테스트
+# _should_auto_resume extra tests
 # ============================================================
 
 class TestShouldAutoResumeExtended(unittest.TestCase):
-    """_should_auto_resume 추가 케이스."""
+    """_should_auto_resume extra cases."""
 
     def setUp(self):
         self.tc = _make_teleclaw()
 
     def test_resume_count_exactly_2_rejected(self):
-        """resume_count == 2 → 거부."""
+        """resume_count == 2 → denied."""
         state = _make_state(resume_count=2, session_id="abc")
         self.assertFalse(self.tc._should_auto_resume(state))
 
     def test_resume_count_1_accepted(self):
-        """resume_count == 1 → 허용."""
+        """resume_count == 1 → allowed."""
         state = _make_state(resume_count=1, session_id="abc")
         self.assertTrue(self.tc._should_auto_resume(state))
 
     def test_resume_count_0_accepted(self):
-        """resume_count == 0 → 허용."""
+        """resume_count == 0 → allowed."""
         state = _make_state(resume_count=0, session_id="abc")
         self.assertTrue(self.tc._should_auto_resume(state))
 
     def test_no_resume_flag_clears_after_skip(self):
-        """no_resume 플래그가 스킵 후 리셋."""
+        """no_resume flag resets after skipping."""
         state = _make_state(no_resume_before_restart=True, session_id="abc")
         self.assertFalse(self.tc._should_auto_resume(state))
         self.assertFalse(state.no_resume_before_restart)
 
     def test_reset_mode_rejected(self):
-        """last_restart_mode=reset → 거부."""
+        """last_restart_mode=reset → denied."""
         state = _make_state(last_restart_mode="reset", session_id="abc")
         self.assertFalse(self.tc._should_auto_resume(state))
 
     def test_no_session_id_rejected(self):
-        """session_id 비어있음 → 거부."""
+        """Empty session_id → denied."""
         state = _make_state(session_id="")
         self.assertFalse(self.tc._should_auto_resume(state))
 
     def test_none_session_id_rejected(self):
-        """session_id=None → 거부."""
+        """session_id=None → denied."""
         state = _make_state(session_id=None)
         self.assertFalse(self.tc._should_auto_resume(state))
 

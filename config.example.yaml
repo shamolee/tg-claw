@@ -1,30 +1,30 @@
-# TeleClaw 설정 파일
-# 이 파일을 config.yaml로 복사한 후 실제 값을 채우세요.
+# TeleClaw configuration
+# Copy this file to config.yaml and fill in your values.
 #   cp config.example.yaml config.yaml
 
-# 언어 (ko / en)
+# Language: en / ko / az / ru / tr (see src/resources/lang/)
 lang: "en"
 
-# Windows 예약 작업 이름 (win-scripts/*.ps1 에서 사용, 기본값 TeleClaw)
+# Windows scheduled task name (used by win-scripts/*.ps1, default TeleClaw)
 service_name: "TeleClaw"
 
-# 런타임 파일 위치 (logs/ locks/ state/ uploads/). 상대 경로는 이 파일 위치 기준
+# Runtime files location (logs/ locks/ state/ uploads/). Relative to this file
 storage_dir: "storage"
 
-# 텔레그램으로 받은 이미지/파일 보관 기간 (일, 0 = 삭제 안 함)
+# Days to keep images/files received via Telegram (0 = keep forever)
 upload_retention_days: 7
 
-# 텔레그램 채팅 ID (봇과 대화할 사용자)
+# Telegram chat ID (the user who talks to the bot)
 chat_id: "YOUR_TELEGRAM_CHAT_ID"
 
-# 허용된 사용자 ID (쉼표 구분, 비워두면 chat_id만 허용)
-# @userinfobot 으로 자신의 ID를 확인할 수 있습니다
+# Allowed user IDs (comma-separated; if empty, only chat_id is allowed)
+# You can find your ID with @userinfobot
 allowed_users: ""
 
-# 프로젝트별 설정
-# 각 프로젝트는 독립된 텔레그램 봇으로 운영됩니다.
-# @BotFather에서 봇을 생성하고 토큰을 입력하세요.
+# Per-project settings
+# Each project runs as its own Telegram bot.
+# Create a bot with @BotFather and enter its token.
 projects:
   MyProject:
-    cwd: "/path/to/your/project"          # Claude Code 작업 디렉토리
-    bot_token: "BOT_TOKEN_FROM_BOTFATHER"  # 텔레그램 봇 토큰 (@BotFather에서 발급)
+    cwd: "/path/to/your/project"          # Claude Code working directory
+    bot_token: "BOT_TOKEN_FROM_BOTFATHER"  # Telegram bot token (issued by @BotFather)

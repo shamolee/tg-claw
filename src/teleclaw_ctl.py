@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""TeleClaw CLI — 텔레그램/콘솔 양쪽에서 사용 가능한 명령어 도구.
+"""TeleClaw CLI — command tool usable from both Telegram and the console.
 
-사용법:
-  python -m src.teleclaw_ctl s              # 상태
-  python -m src.teleclaw_ctl r [name]       # 재시작
-  python -m src.teleclaw_ctl x [name]       # 리셋
-  python -m src.teleclaw_ctl p <name>       # 일시정지
-  python -m src.teleclaw_ctl l [N]          # 로그
-  python -m src.teleclaw_ctl u              # 사용량
-  python -m src.teleclaw_ctl h              # 도움말
+Usage:
+  python -m src.teleclaw_ctl s              # status
+  python -m src.teleclaw_ctl r [name]       # restart
+  python -m src.teleclaw_ctl x [name]       # reset
+  python -m src.teleclaw_ctl p <name>       # pause
+  python -m src.teleclaw_ctl l [N]          # logs
+  python -m src.teleclaw_ctl u              # usage
+  python -m src.teleclaw_ctl h              # help
 """
 
 import json
@@ -55,7 +55,7 @@ def _resolve_name(arg):
             print(msg("tcctl_specify_session", names=", ".join(SESSION_NAMES)))
             return None
         return name
-    # 대소문자 무시 매칭
+    # case-insensitive match
     for n in SESSION_NAMES + ["teleclaw"]:
         if n.lower() == arg.lower():
             return n
@@ -64,7 +64,7 @@ def _resolve_name(arg):
 
 
 def _get_all_processes():
-    """claude.exe + teleclaw 관련 python 프로세스를 모두 조회한다.
+    """List claude.exe plus all teleclaw-related python processes.
 
     Returns:
         {"sessions": {name: {pid, mem_mb}},
@@ -72,7 +72,7 @@ def _get_all_processes():
          "infra": [{pid, mem_mb, label}]}
     """
     import re as _re
-    # claude + teleclaw 관련 프로세스 조회 (크로스 플랫폼)
+    # Find claude + teleclaw-related processes (cross-platform)
     try:
         import psutil
         lines = []
@@ -87,7 +87,7 @@ def _get_all_processes():
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     except ImportError:
-        # psutil 없으면 Windows에서만 PowerShell fallback
+        # Without psutil, fall back to PowerShell (Windows only)
         if sys.platform == "win32":
             ps_cmd = (
                 "Get-CimInstance Win32_Process | "
@@ -110,7 +110,7 @@ def _get_all_processes():
             print(msg("tcctl_need_psutil"))
             return {"sessions": {}, "manual": [], "infra": []}
 
-    # session_ids.json에서 세션 ID → 이름 매핑
+    # Map session ID → name from session_ids.json
     sid_to_name = {}
     if SESSION_IDS_FILE.exists():
         try:
@@ -135,7 +135,7 @@ def _get_all_processes():
         mem_mb = round(int(parts[2] or 0) / 1024 / 1024)
         cmdline = parts[3]
 
-        # python teleclaw 프로세스
+        # python teleclaw processes
         if "python" in proc_name.lower():
             if "teleclaw_daemon" in cmdline or "teleclaw-wrapper" in cmdline:
                 infra.append({"pid": pid, "mem_mb": mem_mb, "label": "daemon"})
@@ -143,7 +143,7 @@ def _get_all_processes():
                 infra.append({"pid": pid, "mem_mb": mem_mb, "label": "teleclaw"})
             continue
 
-        # claude.exe — 세션 매핑
+        # claude.exe — map to sessions
         matched_name = None
         if "--resume" in cmdline:
             for sid, sname in sid_to_name.items():
@@ -165,7 +165,7 @@ def _get_all_processes():
 
 
 def cmd_sys():
-    """시스템 CPU, 메모리 상태."""
+    """System CPU and memory status."""
     try:
         import psutil
         cpu = psutil.cpu_percent(interval=0.5)
@@ -180,11 +180,11 @@ def cmd_sys():
 
 
 def cmd_ps():
-    """관련 프로세스 목록 및 상태."""
+    """List related processes and their state."""
     all_procs = _get_all_processes()
     tc_data = {}
 
-    # TeleClaw 상태
+    # TeleClaw status
     if STATUS_FILE.exists():
         tc_data = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
         ts = tc_data.get("ts", 0)
@@ -199,13 +199,13 @@ def cmd_ps():
     else:
         print(msg("tcctl_sv_not_running"))
 
-    # 인프라 프로세스 (래퍼, teleclaw python)
+    # Infrastructure processes (wrapper, teleclaw python)
     for p in all_procs["infra"]:
         print(f"  {p['label']}: PID={p['pid']} {p['mem_mb']}MB")
 
     total_mb = sum(p["mem_mb"] for p in all_procs["infra"])
 
-    # 세션 프로세스
+    # Session processes
     for name, sess in tc_data.get("sessions", {}).items():
         status = sess.get("status", "?")
         if db.is_paused(name):
@@ -220,10 +220,10 @@ def cmd_ps():
         total_mb += mem_mb
         print(f"  {name}: {status} | {pid_str} {mem_str} | Q={q} E={e} R={r}")
 
-    # 수동/미매핑 세션
+    # Manual/unmapped sessions
     for i, p in enumerate(all_procs["manual"]):
         total_mb += p["mem_mb"]
-        label = f"수동{i+1}" if len(all_procs["manual"]) > 1 else "수동"
+        label = msg("tcctl_manual_n", n=i + 1) if len(all_procs["manual"]) > 1 else msg("tcctl_manual")
         print(f"  ({label}): PID={p['pid']} {p['mem_mb']}MB")
 
     print(msg("tcctl_total", mem=total_mb))
@@ -246,13 +246,13 @@ def cmd_restart(arg, mode="resume"):
 
 
 def cmd_pause(arg):
-    """세션을 일시정지 — DB 마킹 + 프로세스 종료. TeleClaw가 재시작하지 않음."""
+    """Pause a session — mark it in the DB + kill its process. TeleClaw won't restart it."""
     name = _resolve_name(arg)
     if not name or name.lower() == "teleclaw":
         print(msg("tcctl_specify_session_no_sv"))
         return
     db.set_paused(name, True)
-    # 프로세스 종료
+    # Kill the process
     all_procs = _get_all_processes()
     pi = all_procs["sessions"].get(name)
     if pi and pi.get("pid"):
@@ -315,7 +315,7 @@ def cmd_usage():
         print(f"7d   {_bar(seven['utilization'])} {_reset_str(seven)}")
 
 
-# config.py의 cwd에서 자동 생성 (D:/workspace/foo → D--workspace-foo)
+# Derived from each cwd in config.py (D:/workspace/foo → D--workspace-foo)
 PROJECT_DIRS = {
     name: info["cwd"].replace(":", "").replace("/", "-").replace("\\", "-")
     for name, info in PROJECTS.items()
@@ -373,7 +373,7 @@ def cmd_ctx():
             cache_create = last_usage.get("cache_creation_input_tokens", 0)
             cache_read = last_usage.get("cache_read_input_tokens", 0)
             total = inp + cache_create + cache_read
-            # 모델별 컨텍스트 크기
+            # Context size per model
             CTX_SIZES = {"opus": 1000000, "1m": 1000000, "sonnet": 200000, "haiku": 200000}
             ctx_size = next((v for k, v in CTX_SIZES.items() if k in last_model), 200000)
             pct = total / ctx_size * 100
@@ -391,7 +391,7 @@ def cmd_help():
 
 
 def main():
-    ensure_storage()  # db.init()이 빈 DB를 먼저 만들어 마이그레이션을 막지 않도록
+    ensure_storage()  # so db.init() doesn't create an empty DB first and block migration
     db.init()
 
     if len(sys.argv) < 2:

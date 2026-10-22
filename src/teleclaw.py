@@ -1,7 +1,7 @@
 """
-TeleClaw — Claude Code SDK 기반 텔레그램 봇
-텔레그램 메시지 수신 → SDK query → 응답 → 텔레그램 전송.
-health check, 재시작, 상태 관리, watchdog 통합.
+TeleClaw — Telegram bot built on the Claude Code SDK
+Receive Telegram message → SDK query → response → send to Telegram.
+Integrates health checks, restarts, state management and a watchdog.
 """
 
 import os
@@ -14,7 +14,7 @@ import threading
 import httpx
 from pathlib import Path
 
-# Windows cp949 인코딩 문제 방지 — stdout/stderr를 UTF-8로 강제
+# Avoid Windows cp949 encoding issues — force stdout/stderr to UTF-8
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -25,7 +25,7 @@ from claude_code_sdk import (
 )
 from claude_code_sdk.types import StreamEvent
 
-# monkey-patch: 알 수 없는 메시지 타입 (rate_limit_event 등) 무시
+# monkey-patch: ignore unknown message types (rate_limit_event, etc.)
 import claude_code_sdk._internal.message_parser as _mp
 _original_parse = _mp.parse_message
 def _patched_parse(data):
@@ -62,16 +62,16 @@ class TeleClaw:
         self._update_ids: dict[str, int] = {}
         self._watchdog_ts = time.time()
         self._start_time = time.time()
-        self._last_msg_map: dict[str, float] = {}  # 중복 메시지 제거용
+        self._last_msg_map: dict[str, float] = {}  # for duplicate message removal
         self._ask_client: ClaudeSDKClient | None = None
         self._ask_busy = False
-        self._fresh_start = True  # TeleClaw 프로세스 시작 직후 (개별 세션 재시작과 구분)
-        self.output_level = OUTPUT_LEVEL  # minimal / normal (런타임 /mode로 전환 가능)
+        self._fresh_start = True  # right after the TeleClaw process starts (vs. a single session restart)
+        self.output_level = OUTPUT_LEVEL  # minimal / normal (switchable at runtime via /mode)
 
     async def start(self):
-        log("TeleClaw 시작")
+        log("TeleClaw starting")
         db.init()
-        # 세션 초기화
+        # Initialize sessions
         for name, config in PROJECTS.items():
             state = SessionState(name=name, config=config)
             channel = TelegramChannel(
@@ -84,22 +84,22 @@ class TeleClaw:
 
         self._load_session_ids()
 
-        # AsyncClient 먼저 생성 (폴링에 필요)
+        # Create the AsyncClient first (needed for polling)
         self._ahttp = httpx.AsyncClient(timeout=35)
         self._loop = asyncio.get_running_loop()  # command handlers run in a thread
 
-        # 각 채널에 ahttp 설정
+        # Set ahttp on each channel
         for state in self.sessions.values():
             state.channel.set_ahttp(self._ahttp)
 
-        # 시작 알림 (채널 초기화 후)
+        # Startup notification (after channels are initialized)
         self._broadcast_sync(msg("sv_start"))
 
-        # "/" 자동완성 메뉴 등록 (봇 토큰별 1회, 실패해도 시작은 계속)
+        # Register the "/" autocomplete menu (once per bot token; startup continues on failure)
         for token in {s.config.get("bot_token", "") for s in self.sessions.values()} - {""}:
             await asyncio.to_thread(register_bot_commands, token, LANG)
 
-        # 폴링 + 유틸리티 루프 즉시 시작 (연결 전에도 메시지 수신 가능)
+        # Start polling + utility loops right away (messages can be received before connecting)
         tasks = []
         for name, state in self.sessions.items():
             tasks.append(asyncio.create_task(self._bot_poll_loop(state)))
@@ -107,23 +107,23 @@ class TeleClaw:
         tasks.append(asyncio.create_task(self._health_check_loop()))
         tasks.append(asyncio.create_task(self._watchdog_loop()))
 
-        # 세션 병렬 연결 (다운타임 최소화, pause 세션 제외)
+        # Connect sessions in parallel (minimizes downtime, skips paused sessions)
         async def _connect_and_init(state):
             if db.is_paused(state.name):
-                log(f"{state.name}: PAUSED — 연결 스킵")
+                log(f"{state.name}: PAUSED — skipping connect")
                 return
             await self._connect_session(state)
             if state.connected:
                 await self._wait_mcp_ready(state, timeout=5)
                 state.channel.send_sync(msg("sv_ready"), notify=True)
-                log(f"{state.name}: 세션 루프 즉시 시작")
+                log(f"{state.name}: starting session loop immediately")
 
         await asyncio.gather(
             *[_connect_and_init(s) for s in self.sessions.values()],
             return_exceptions=True,
         )
 
-        # 모든 세션 루프 시작 (연결 여부 무관 — 미연결은 자동 재연결)
+        # Start all session loops (regardless of connection — unconnected ones auto-reconnect)
         for name, state in self.sessions.items():
             tasks.append(asyncio.create_task(self._session_loop(state)))
 
@@ -132,30 +132,30 @@ class TeleClaw:
         connected = [n for n, s in self.sessions.items() if s.connected]
         elapsed = int(time.time() - self._start_time)
         await self._broadcast(msg("sv_init_done", elapsed=elapsed, names=', '.join(connected)))
-        log("모든 루프 시작됨")
+        log("All loops started")
 
-        # TeleClaw 시작 시에는 자동 재개 안 함
-        # (세션이 아직 불안정할 수 있고, was_busy_before_restart도 없음)
+        # No auto-resume when TeleClaw itself starts
+        # (sessions may still be unstable, and was_busy_before_restart is not set)
         self._fresh_start = False
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for i, r in enumerate(results):
             if isinstance(r, BaseException):
-                log(f"task[{i}] 에러로 종료: {r}")
+                log(f"task[{i}] exited with error: {r}")
                 await self._broadcast(msg("sv_task_error", i=i, error=r))
 
 
     async def _safe_disconnect(self, client, name: str):
-        """프로세스를 직접 종료. client.disconnect()는 anyio cancel scope 충돌로 CPU 100% 유발하므로 호출하지 않음."""
+        """Terminate the process directly. client.disconnect() is not called because the anyio cancel scope conflict causes 100% CPU."""
         try:
             transport = getattr(client, "_transport", None)
             proc = getattr(transport, "_process", None) if transport else None
             if proc and proc.returncode is None:
                 proc.terminate()
-                log(f"{name}: 프로세스 terminate (pid={proc.pid})")
+                log(f"{name}: terminating process (pid={proc.pid})")
             else:
-                log(f"{name}: 프로세스 이미 종료됨")
+                log(f"{name}: process already exited")
         except Exception as kill_err:
-                log(f"{name}: 프로세스 종료 실패: {kill_err}")
+                log(f"{name}: failed to terminate process: {kill_err}")
 
     async def _connect_session(self, state: SessionState, mode: str = "resume"):
         try:
@@ -165,7 +165,7 @@ class TeleClaw:
                 with open(mcp_json_path, "r", encoding="utf-8") as f:
                     mcp_data = json.load(f)
                 mcp_servers = mcp_data.get("mcpServers", {})
-                # 폴링하는 telegram MCP만 제외 (sender는 유지)
+                # Exclude only the polling telegram MCP (keep the sender)
                 exclude = {"telegram", "telegram-crossword", "telegram-nemonemo"}
                 mcp_servers = {
                     k: v for k, v in mcp_servers.items()
@@ -179,18 +179,18 @@ class TeleClaw:
                 max_turns=50,
             )
 
-            # reset 모드: 컨텍스트 초기화 (새 대화)
+            # reset mode: clear context (new conversation)
             if mode == "reset":
                 state.session_id = None
-                log(f"{state.name}: reset 모드 (새 대화)")
+                log(f"{state.name}: reset mode (new conversation)")
             else:
-                # resume/new 모두 기존 컨텍스트 유지
+                # resume/new both keep the existing context
                 if state.session_id:
                     options.resume = state.session_id
-                    log(f"{state.name}: {mode} 모드 (session_id={state.session_id[:16]}...)")
+                    log(f"{state.name}: {mode} mode (session_id={state.session_id[:16]}...)")
                 else:
                     options.continue_conversation = True
-                    log(f"{state.name}: continue 폴백 (session_id 없음)")
+                    log(f"{state.name}: continue fallback (no session_id)")
 
 
             state.client = ClaudeSDKClient(options)
@@ -200,28 +200,28 @@ class TeleClaw:
             state.start_time = time.time()
             state.query_count = 0
             state.last_restart_mode = mode
-            log(f"{state.name}: SDK 세션 연결 완료 (mode={mode})")
+            log(f"{state.name}: SDK session connected (mode={mode})")
             state.channel.send_sync(msg("sv_connected", name=state.name), notify=True)
         except Exception as e:
             if mode != "reset":
-                log(f"{state.name}: {mode} 실패 ({e}), reset 모드로 재시도")
+                log(f"{state.name}: {mode} failed ({e}), retrying in reset mode")
                 state.session_id = None
                 await self._connect_session(state, mode="reset")
                 return
-            log(f"{state.name}: SDK 연결 실패: {e}")
+            log(f"{state.name}: SDK connect failed: {e}")
             state.connected = False
             state.error_count += 1
 
     async def _wait_mcp_ready(self, state: SessionState, timeout: int = 5):
-        """MCP 서버 준비 대기. 최소 3초, 최대 timeout초."""
+        """Wait for MCP servers to be ready. At least 3s, at most timeout seconds."""
         for i in range(timeout):
             await asyncio.sleep(1)
             if not state.connected or not state.client:
                 break
-        log(f"{state.name}: MCP 안정화 대기 완료 ({min(timeout, i+1)}초)")
+        log(f"{state.name}: MCP stabilization wait done ({min(timeout, i+1)}s)")
 
     async def _ensure_ask_client(self) -> bool:
-        """ask 전용 SDK 클라이언트를 생성/재사용. 성공 시 True."""
+        """Create/reuse the SDK client dedicated to ask. True on success."""
         if self._ask_client is not None:
             return True
         try:
@@ -232,15 +232,15 @@ class TeleClaw:
             )
             self._ask_client = ClaudeSDKClient(options)
             await asyncio.wait_for(self._ask_client.connect(None), timeout=60)
-            log("ask 세션 연결 완료")
+            log("ask session connected")
             return True
         except Exception as e:
-            log(f"ask 세션 연결 실패: {e}")
+            log(f"ask session connect failed: {e}")
             self._ask_client = None
             return False
 
     def _broadcast_sync(self, text: str):
-        """전체 세션에 동기 알림."""
+        """Notify all sessions synchronously."""
         sent = set()
         for state in self.sessions.values():
             token = state.config.get("bot_token", "")
@@ -249,7 +249,7 @@ class TeleClaw:
                 sent.add(token)
 
     async def _broadcast(self, text: str):
-        """전체 세션에 비동기 알림."""
+        """Notify all sessions asynchronously."""
         sent = set()
         for state in self.sessions.values():
             token = state.config.get("bot_token", "")
@@ -258,14 +258,14 @@ class TeleClaw:
                 sent.add(token)
 
     def _channel_by_token(self, bot_token: str):
-        """bot_token에 해당하는 channel 반환."""
+        """Return the channel for the given bot_token."""
         for state in self.sessions.values():
             if state.config["bot_token"] == bot_token:
                 return state.channel
         return None
 
     async def _handle_ask(self, question: str, bot_token: str):
-        """ask 명령 비동기 처리."""
+        """Handle the ask command asynchronously."""
         ch = self._channel_by_token(bot_token)
         if self._ask_busy:
             ch.send_sync(msg("ask_busy"))
@@ -287,21 +287,21 @@ class TeleClaw:
                             answer_parts.append(block.text.strip())
                 elif isinstance(ask_msg, ResultMessage):
                     break
-            answer = "\n".join(answer_parts) if answer_parts else "(빈 응답)"
+            answer = "\n".join(answer_parts) if answer_parts else msg("ask_empty")
             if len(answer) > 3900:
-                answer = answer[:3900] + "\n... (잘림)"
+                answer = answer[:3900] + msg("truncated")
             ch.send_sync(msg("ask_response", answer=answer))
         except Exception as e:
-            log(f"ask 처리 실패: {e}")
+            log(f"ask handling failed: {e}")
             ch.send_sync(msg("ask_error", error=e))
-            # 세션 초기화
+            # Reset the session
             self._ask_client = None
         finally:
             self._ask_busy = False
 
     async def _restart_session(self, state: SessionState, reason: str, mode: str = "resume", force: bool = False, no_resume: bool = False):
         if state.restarting:
-            log(f"{state.name}: 이미 재시작 진행 중, 스킵 (사유: {reason})")
+            log(f"{state.name}: restart already in progress, skipping (reason: {reason})")
             return
 
         now = time.time()
@@ -319,14 +319,14 @@ class TeleClaw:
 
         state.restarting = True
         try:
-            log(f"{state.name}: 재시작 시도 (사유: {reason})")
+            log(f"{state.name}: restart attempt (reason: {reason})")
             state.channel.send_sync(msg("restart_reason", name=state.name, reason=reason))
 
-            # 재시작 전 상태 기록 (STUCK은 busy 강제)
+            # Record pre-restart state (STUCK forces busy)
             state.was_busy_before_restart = state.busy or "STUCK" in reason
             state.last_restart_mode = mode
 
-            # client disconnect 후 참조 해제
+            # Drop the client reference after disconnect
             old_client = state.client
             state.client = None
             if old_client:
@@ -344,15 +344,16 @@ class TeleClaw:
             if state.connected:
                 state.channel.send_sync(msg("restart_done", name=state.name), notify=True)
 
-                # auto-resume: 세션 개별 재시작 시에만
-                # reset(new) 또는 TeleClaw 초기 시작 시에는 스킵 (start()에서 check 모드로 처리)
+                # auto-resume: only on individual session restarts
+                # skipped for reset(new) or initial TeleClaw start (handled in check mode in start())
                 if mode != "new" and not self._fresh_start and AUTO_RESUME_ENABLED and not no_resume and state.message_queue.empty():
-                    # 세션 개별 재시작 → 설정된 모드(resume/check) 사용
+                    # individual session restart → use the configured mode (resume/check)
                     effective_mode = AUTO_RESUME_MODE
-                    prompt = AUTO_RESUME_PROMPTS.get(effective_mode)
+                    prompt_key = AUTO_RESUME_PROMPTS.get(effective_mode)
+                    prompt = msg(prompt_key) if prompt_key else None
                     if prompt and self._should_auto_resume(state):
                         state.resume_count += 1
-                        log(f"{state.name}: 자동 재개 ({state.resume_count}/2, mode={effective_mode}) — AI에게 판단 위임")
+                        log(f"{state.name}: auto-resume ({state.resume_count}/2, mode={effective_mode}) — leaving the decision to the AI")
                         await state.message_queue.put({
                             "text": prompt,
                             "msg_id": 0,
@@ -360,7 +361,7 @@ class TeleClaw:
                             "retry_count": 0,
                         })
                     elif effective_mode == "none" and self._should_auto_resume(state):
-                        log(f"{state.name}: auto-resume mode=none → 프롬프트 없이 대기")
+                        log(f"{state.name}: auto-resume mode=none → waiting without a prompt")
         finally:
             state.restarting = False
 
@@ -369,7 +370,7 @@ class TeleClaw:
             try:
                 await asyncio.sleep(1)
 
-                # teleclaw 자체 재시작 체크 (DB)
+                # Check for a teleclaw self-restart (DB)
                 sv_cmd = db.pop_command("teleclaw")
                 if sv_cmd:
                     mode = "resume"
@@ -378,17 +379,17 @@ class TeleClaw:
                     for t in [x.strip() for x in args.split(",") if x.strip()]:
                         if t == "force": force = True
                         elif t in ("resume", "reset"): mode = t
-                    cooldown = 300  # 5분
+                    cooldown = 300  # 5 min
                     elapsed = time.time() - self._start_time
                     if not force and elapsed < cooldown:
-                        log(f"teleclaw 자체 재시작 flag 무시 (쿨다운: {int(cooldown - elapsed)}초 남음)")
+                        log(f"ignoring teleclaw self-restart flag (cooldown: {int(cooldown - elapsed)}s left)")
                     else:
-                        # busy 세션은 no_resume 마킹 (auto-resume 루프 방지)
+                        # mark busy sessions no_resume (prevents auto-resume loops)
                         self._save_session_ids(no_resume_if_busy=True)
-                        # busy 세션이 있으면 완료 대기 (최대 60초)
+                        # if any session is busy, wait for it to finish (up to 60s)
                         busy_sessions = [n for n, s in self.sessions.items() if s.busy]
                         if busy_sessions and not force:
-                            log(f"teleclaw 자체 재시작 flag 감지 — busy 세션 대기: {', '.join(busy_sessions)}")
+                            log(f"teleclaw self-restart flag detected — waiting for busy sessions: {', '.join(busy_sessions)}")
                             waited = 0
                             while waited < 60:
                                 await asyncio.sleep(2)
@@ -397,11 +398,11 @@ class TeleClaw:
                                 if not busy_sessions:
                                     break
                             if busy_sessions:
-                                log(f"graceful 대기 60초 초과, 강제 종료 (busy: {', '.join(busy_sessions)})")
-                        log(f"teleclaw 자체 재시작 flag 감지 (mode={mode}, force={force}) → 프로세스 종료")
+                                log(f"graceful wait exceeded 60s, forcing exit (busy: {', '.join(busy_sessions)})")
+                        log(f"teleclaw self-restart flag detected (mode={mode}, force={force}) → exiting process")
                         await self._broadcast(msg("sv_self_restart", mode=mode))
                         self._shutdown = True
-                        os._exit(0)  # wrapper가 자동 재시작
+                        os._exit(0)  # the wrapper restarts it automatically
 
                 for name, state in self.sessions.items():
                     cmd = db.pop_command(name)
@@ -413,11 +414,11 @@ class TeleClaw:
                     command = cmd.get("command", "")
                     if command == "pause":
                         db.set_paused(name, True)
-                        log(f"{name}: pause 명령 (DB)")
+                        log(f"{name}: pause command (DB)")
                         continue
                     if command == "wakeup":
                         db.set_paused(name, False)
-                        log(f"{name}: wakeup 명령 (DB)")
+                        log(f"{name}: wakeup command (DB)")
                         continue
                     args = cmd.get("args", "")
                     tokens = [t.strip() for t in args.split(",") if t.strip()]
@@ -425,16 +426,16 @@ class TeleClaw:
                         if t == "force": force = True
                         elif t == "noresume": no_resume = True
                         elif t in ("new", "resume", "reset"): mode = t
-                    log(f"{name}: {command} 명령 (DB, mode={mode})")
-                    # restart 요청 시 pause 자동 해제
+                    log(f"{name}: {command} command (DB, mode={mode})")
+                    # a restart request automatically clears pause
                     db.set_paused(name, False)
                     state.no_resume_before_restart = False
-                    log(f"{name}: restart 실행 (mode={mode}, force={force}, noresume={no_resume})")
-                    await self._restart_session(state, f"명령 요청 (mode={mode})", mode=mode, force=force, no_resume=no_resume)
+                    log(f"{name}: running restart (mode={mode}, force={force}, noresume={no_resume})")
+                    await self._restart_session(state, msg("reason_cmd_request", mode=mode), mode=mode, force=force, no_resume=no_resume)
             except asyncio.CancelledError:
                 raise
             except BaseException as e:
-                log(f"restart_flag_loop 에러: {e}")
+                log(f"restart_flag_loop error: {e}")
                 await asyncio.sleep(5)
 
     def _assess_health(self, state: SessionState) -> str:
@@ -449,22 +450,22 @@ class TeleClaw:
             busy_duration = time.time() - state.busy_since
             if busy_duration > STUCK_THRESHOLD:
                 return "STUCK"
-        # 큐에 메시지가 있는데 busy가 아닌 상태가 5분 이상 지속
+        # messages are queued but the session hasn't been busy for 5+ minutes
         if not state.busy and state.message_queue.qsize() > 0:
             return "STUCK"
         return "OK"
 
     async def _health_check_loop(self):
-        # 시작 후 2분 grace period
+        # 2-minute grace period after startup
         await asyncio.sleep(HEALTH_CHECK_INTERVAL)
         last_prune = 0.0
         while not self._shutdown:
             try:
-                if time.time() - last_prune > 3600:  # 업로드 정리는 1시간마다
+                if time.time() - last_prune > 3600:  # prune uploads once an hour
                     last_prune = time.time()
                     removed = prune_uploads()
                     if removed:
-                        log(f"오래된 업로드 {removed}개 삭제")
+                        log(f"deleted {removed} old uploads")
                 for name, state in self.sessions.items():
                     if self._shutdown:
                         return
@@ -474,16 +475,16 @@ class TeleClaw:
                     if status == "DEAD":
                         await self._restart_session(state, "DEAD")
                     elif status == "STUCK":
-                        await self._restart_session(state, "STUCK (30분+ busy)")
+                        await self._restart_session(state, msg("reason_stuck"))
                 self._write_status()
             except asyncio.CancelledError:
                 raise
             except BaseException as e:
-                log(f"health_check_loop 에러: {e}")
+                log(f"health_check_loop error: {e}")
             await asyncio.sleep(HEALTH_CHECK_INTERVAL)
 
     def _save_offset(self, bot_id: str, offset: int):
-        """폴링 offset을 파일에 원자적으로 저장 (write→rename)."""
+        """Save the polling offset to a file atomically (write→rename)."""
         path = os.path.join(STATE_DIR, f"last_offset_{bot_id}.json")
         tmp_path = path + ".tmp"
         try:
@@ -494,7 +495,7 @@ class TeleClaw:
             pass
 
     def _load_offset(self, bot_id: str) -> int | None:
-        """저장된 offset 복원. 없으면 None."""
+        """Restore the saved offset. None if missing."""
         path = os.path.join(STATE_DIR, f"last_offset_{bot_id}.json")
         try:
             with open(path, "r") as f:
@@ -504,8 +505,8 @@ class TeleClaw:
             return None
 
     def _save_session_ids(self, no_resume_if_busy=False):
-        """session_id + busy 상태를 파일에 저장 (재시작 시 복원용).
-        no_resume_if_busy=True: TeleClaw 자체 재시작 시, busy 세션은 no_resume 마킹."""
+        """Save session_id + busy state to a file (restored after restart).
+        no_resume_if_busy=True: on a TeleClaw self-restart, mark busy sessions no_resume."""
         data = {}
         for name, state in self.sessions.items():
             entry = {}
@@ -522,7 +523,7 @@ class TeleClaw:
             pass
 
     def _load_session_ids(self):
-        """저장된 session_id + busy 상태를 복원."""
+        """Restore the saved session_id + busy state."""
         try:
             with open(SESSION_IDS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -530,26 +531,26 @@ class TeleClaw:
                 if name not in self.sessions:
                     continue
                 state = self.sessions[name]
-                # 하위 호환: 문자열이면 session_id만
+                # backward compat: a plain string is just the session_id
                 if isinstance(val, str):
                     if val:
                         state.session_id = val
-                        log(f"{name}: session_id 복원됨 ({val[:16]}...)")
+                        log(f"{name}: session_id restored ({val[:16]}...)")
                 elif isinstance(val, dict):
                     sid = val.get("session_id", "")
                     if sid:
                         state.session_id = sid
-                        log(f"{name}: session_id 복원됨 ({sid[:16]}...)")
+                        log(f"{name}: session_id restored ({sid[:16]}...)")
                     if val.get("was_busy"):
                         state.was_busy_before_restart = True
-                        log(f"{name}: 재시작 전 busy 상태 복원됨")
+                        log(f"{name}: pre-restart busy state restored")
                     if val.get("no_resume"):
                         state.no_resume_before_restart = True
-                        log(f"{name}: no_resume 마킹 복원됨 (auto-resume 루프 방지)")
+                        log(f"{name}: no_resume mark restored (prevents auto-resume loop)")
         except (FileNotFoundError, json.JSONDecodeError):
             pass
         except Exception as e:
-            log(f"session_id 복원 실패: {e}")
+            log(f"session_id restore failed: {e}")
 
     def _write_status(self):
         now = time.time()
@@ -587,13 +588,13 @@ class TeleClaw:
                 time.sleep(30)
                 age = time.time() - self._watchdog_ts
                 if age > 300:
-                    log(f"WATCHDOG: asyncio 루프 {int(age)}초 무응답, 강제 종료")
+                    log(f"WATCHDOG: asyncio loop unresponsive for {int(age)}s, forcing exit")
                     os._exit(1)
         t = threading.Thread(target=_watchdog, daemon=True)
         t.start()
 
     def _handle_command(self, text: str, bot_token: str) -> bool:
-        """TeleClaw 명령어 처리. 처리했으면 True 반환."""
+        """Handle a TeleClaw command. Returns True if handled."""
         ch = self._channel_by_token(bot_token)
         return handle_command(self, text, bot_token, ch)
 
@@ -607,42 +608,42 @@ class TeleClaw:
         return _get_usage(self._http)
 
     async def _download_photo(self, msg: dict, bot_token: str, name: str) -> str:
-        """텔레그램 이미지를 다운로드하여 로컬 경로 반환."""
+        """Download a Telegram image and return its local path."""
         photos = msg.get("photo", [])
         if not photos:
             return ""
-        # 가장 큰 해상도 선택
+        # Pick the largest resolution
         photo = photos[-1]
         file_id = photo.get("file_id", "")
         if not file_id:
             return ""
         try:
-            # getFile API로 파일 경로 조회
+            # Look up the file path via the getFile API
             url = f"https://api.telegram.org/bot{bot_token}/getFile"
             r = await self._ahttp.post(url, json={"file_id": file_id}, timeout=10)
             data = r.json()
             if not data.get("ok"):
-                log(f"{name}: getFile 실패: {data}")
+                log(f"{name}: getFile failed: {data}")
                 return ""
             file_path = data["result"]["file_path"]
-            # 다운로드
+            # Download
             download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
             r = await self._ahttp.get(download_url, timeout=30)
-            # 로컬 저장
+            # Save locally
             save_dir = os.path.join(UPLOADS_DIR, "images")
             os.makedirs(save_dir, exist_ok=True)
             ext = os.path.splitext(file_path)[1] or ".jpg"
             save_path = os.path.join(save_dir, f"{name}_{int(time.time())}{ext}")
             with open(save_path, "wb") as f:
                 f.write(r.content)
-            log(f"{name}: 이미지 다운로드 완료: {save_path}")
+            log(f"{name}: image downloaded: {save_path}")
             return save_path
         except Exception as e:
-            log(f"{name}: 이미지 다운로드 실패: {e}")
+            log(f"{name}: image download failed: {e}")
             return ""
 
     async def _download_photo_via_channel(self, ch, file_id: str, name: str) -> str:
-        """channel.download_file()로 이미지 다운로드하여 로컬 경로 반환."""
+        """Download an image via channel.download_file() and return its local path."""
         try:
             data = await ch.download_file(file_id)
             if not data:
@@ -652,14 +653,14 @@ class TeleClaw:
             save_path = os.path.join(save_dir, f"{name}_{int(time.time())}.jpg")
             with open(save_path, "wb") as f:
                 f.write(data)
-            log(f"{name}: 이미지 다운로드 완료: {save_path}")
+            log(f"{name}: image downloaded: {save_path}")
             return save_path
         except Exception as e:
-            log(f"{name}: 이미지 다운로드 실패: {e}")
+            log(f"{name}: image download failed: {e}")
             return ""
 
     async def _download_doc_via_channel(self, ch, file_id: str, file_name: str, name: str) -> str:
-        """channel.download_file()로 문서 다운로드하여 로컬 경로 반환."""
+        """Download a document via channel.download_file() and return its local path."""
         try:
             data = await ch.download_file(file_id)
             if not data:
@@ -669,16 +670,16 @@ class TeleClaw:
             save_path = os.path.join(save_dir, file_name)
             with open(save_path, "wb") as f:
                 f.write(data)
-            log(f"{name}: 파일 다운로드 완료: {save_path}")
+            log(f"{name}: file downloaded: {save_path}")
             return save_path
         except Exception as e:
-            log(f"{name}: 파일 다운로드 실패: {e}")
+            log(f"{name}: file download failed: {e}")
             return ""
 
     @staticmethod
     def _tool_summary(tool_name: str, tool_input: dict) -> str:
-        """도구 호출을 짧은 이름으로 요약"""
-        # MCP 도구명 축약 (mcp__ai-chat__ask → ai-chat.ask)
+        """Summarize a tool call as a short name"""
+        # Shorten MCP tool names (mcp__ai-chat__ask → ai-chat.ask)
         short = tool_name
         if short.startswith("mcp__"):
             parts = short[5:].split("__", 1)
@@ -686,7 +687,7 @@ class TeleClaw:
         path = (tool_input.get("file_path") or tool_input.get("path")
                 or tool_input.get("pattern") or tool_input.get("command", "")[:60])
         if path:
-            # 긴 경로는 파일명만
+            # long paths: file name only
             if len(path) > 40:
                 path = "..." + path[-35:]
             return f"{short}: {path}"
@@ -694,48 +695,48 @@ class TeleClaw:
 
     @staticmethod
     def _format_tool_line(tool_lines: list) -> str:
-        """도구 호출 목록을 컴팩트한 한 줄로 포맷. 4개 초과 시 축약."""
+        """Format the tool call list as one compact line. Abbreviated when more than 4."""
         names = [t.replace("\U0001f527 ", "") for t in tool_lines]
         if len(names) <= 4:
             return "\u2500 \U0001f527 " + " \u2192 ".join(names)
-        # 4개 초과: 처음 2개 + 마지막 1개 + 생략 표시
+        # more than 4: first 2 + last 1 + ellipsis marker
         shown = names[:2] + [f"...+{len(names) - 3}"] + names[-1:]
         return "\u2500 \U0001f527 " + " \u2192 ".join(shown)
 
     @staticmethod
     def _stabilize_markdown(text: str) -> str:
-        """edit 전 미닫힌 코드블록을 임시로 닫아 마크다운 깨짐 방지."""
+        """Temporarily close unclosed code blocks before editing to avoid broken markdown."""
         if text.count("```") % 2 == 1:
             text += "\n```"
         return text
 
     def _should_auto_resume(self, state: SessionState) -> bool:
-        """자동 재개 여부를 판단."""
-        # no_resume 마킹 (TeleClaw/flag 재시작 시 busy였던 세션 → 루프 방지)
+        """Decide whether to auto-resume."""
+        # no_resume mark (session was busy during a TeleClaw/flag restart → prevents loops)
         if state.no_resume_before_restart:
-            log(f"{state.name}: no_resume 마킹 → 자동 재개 스킵 (루프 방지)")
+            log(f"{state.name}: no_resume mark → skipping auto-resume (prevents loop)")
             state.no_resume_before_restart = False
             return False
-        # reset 모드면 재개 안 함
+        # no resume in reset mode
         if state.last_restart_mode == "reset":
-            log(f"{state.name}: reset 모드 → 자동 재개 스킵")
+            log(f"{state.name}: reset mode → skipping auto-resume")
             return False
-        # session_id 없으면 맥락 유실 → 재개 불가
+        # no session_id means context is lost → cannot resume
         if not state.session_id:
-            log(f"{state.name}: session_id 없음 (맥락 유실) → 자동 재개 스킵")
+            log(f"{state.name}: no session_id (context lost) → skipping auto-resume")
             return False
-        # resume_count 초과
+        # resume_count exceeded
         if state.resume_count >= 2:
-            log(f"{state.name}: 자동 재개 {state.resume_count}회 초과 → 중단")
+            log(f"{state.name}: auto-resume exceeded {state.resume_count} times → stopping")
             state.channel.send_sync(msg("auto_resume_fail", name=state.name))
             state.resume_count = 0
             return False
         return True
 
     async def _session_loop(self, state: SessionState):
-        # auto-resume은 세션 개별 재시작(_restart_session)에서만 처리
-        # TeleClaw 초기 시작 시에는 대기 모드
-        log(f"{state.name}: 세션 루프 시작 — 대기 모드")
+        # auto-resume is only handled on individual session restarts (_restart_session)
+        # on initial TeleClaw start, just wait
+        log(f"{state.name}: session loop started — waiting")
         _idle_count = 0
 
         while not self._shutdown:
@@ -746,9 +747,9 @@ class TeleClaw:
                 _idle_count = 0
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 _idle_count += 1
-                if _idle_count % 5 == 0:  # 5분마다 heartbeat
+                if _idle_count % 5 == 0:  # heartbeat every 5 min
                     qsize = state.message_queue.qsize()
-                    log(f"{state.name}: 세션 루프 대기 중 ({_idle_count}분, 큐={qsize}, connected={state.connected})")
+                    log(f"{state.name}: session loop waiting ({_idle_count}min, queue={qsize}, connected={state.connected})")
                 continue
             except BaseException:
                 continue
@@ -758,22 +759,22 @@ class TeleClaw:
                 if retry < 10:
                     msg_data["retry_noclient"] = retry + 1
                     await state.message_queue.put(msg_data)
-                    if retry % 3 == 0:  # 매 3회마다 로그 (스팸 방지)
-                        log(f"{state.name}: client 없음, 재큐잉 ({retry+1}/10, 2초 대기)")
+                    if retry % 3 == 0:  # log every 3rd try (avoid spam)
+                        log(f"{state.name}: no client, requeueing ({retry+1}/10, waiting 2s)")
                     await asyncio.sleep(2)
                 else:
-                    log(f"{state.name}: client 없음, 재시도 소진 (10회/20초) → 메시지 드롭")
+                    log(f"{state.name}: no client, retries exhausted (10 tries/20s) → dropping message")
                     state.channel.send_sync(msg("session_init_fail", text=msg_data['text'][:200]))
                 continue
 
             if not state.connected:
-                await self._restart_session(state, "세션 미연결")
+                await self._restart_session(state, msg("reason_not_connected"))
                 if not state.connected or not state.client:
                     retry = msg_data.get("retry_conn", 0)
                     if retry < 1:
                         msg_data["retry_conn"] = retry + 1
                         await state.message_queue.put(msg_data)
-                        log(f"{state.name}: 세션 미연결, 재시도 큐잉 ({retry+1}/1)")
+                        log(f"{state.name}: session not connected, queueing retry ({retry+1}/1)")
                         await asyncio.sleep(2)
                     else:
                         state.channel.send_sync(msg("session_connect_fail", text=msg_data['text'][:200]))
@@ -786,24 +787,24 @@ class TeleClaw:
             is_auto_resume = msg_data.get("auto_resume", False)
             msg_id = msg_data.get("msg_id", 0)
 
-            # 사용자 메시지 → resume_count 리셋
+            # user message → reset resume_count
             if not is_auto_resume and state.resume_count > 0:
                 state.resume_count = 0
 
-            # 대기 중이던 메시지 처리 시 구분선 전송 (이전 응답과 혼동 방지)
+            # send a separator when handling a queued message (avoids confusion with the previous reply)
             if was_queued and not is_auto_resume:
                 await state.channel.send(msg("pending_message", text=text[:100]))
 
-            log(f"{state.name}: 메시지 처리 시작: {text[:50]}")
-            # 처리 시작 알림은 수신 확인(✔️)으로 대체됨
+            log(f"{state.name}: processing message: {text[:50]}")
+            # the processing-started notice is replaced by the receipt ack (✔️)
 
             try:
                 client = state.client
                 if not client:
                     continue
-                # 버퍼 드레인: query() 전에 이전 턴의 잔여 메시지 제거 (N턴 밀림 방지)
-                # NOTE: SDK private 속성(_query, _message_receive)에 직접 접근.
-                # SDK 업데이트 시 깨질 수 있으므로, 버전 업 후 확인 필요.
+                # buffer drain: remove leftover messages from the previous turn before query() (prevents N-turn lag)
+                # NOTE: accesses SDK private attributes (_query, _message_receive) directly.
+                # May break on SDK updates; re-check after upgrading.
                 drain_count = 0
                 drain_types = []
                 try:
@@ -815,7 +816,7 @@ class TeleClaw:
                                 stale = stream.receive_nowait()
                                 drain_count += 1
                                 msg_type = stale.get("type", "?")
-                                # 주요 내용 요약 (텍스트 블록이면 앞 50자)
+                                # summarize the content (first 50 chars for text blocks)
                                 preview = ""
                                 if msg_type == "assistant":
                                     content = stale.get("message", {}).get("content", [])
@@ -834,51 +835,51 @@ class TeleClaw:
                             except anyio.ClosedResourceError:
                                 break
                 except Exception as e:
-                    log(f"{state.name}: 버퍼 드레인 에러: {e}")
+                    log(f"{state.name}: buffer drain error: {e}")
                 if drain_count:
-                    log(f"{state.name}: 버퍼 드레인 {drain_count}건 제거: {drain_types[:10]}")
+                    log(f"{state.name}: buffer drain removed {drain_count} items: {drain_types[:10]}")
 
                 try:
                     await asyncio.wait_for(client.query(text), timeout=10)
                 except asyncio.TimeoutError:
                     retry = msg_data.get("retry_timeout", 0)
-                    log(f"{state.name}: query() 초기화 타임아웃 (10초), retry={retry}")
-                    await self._restart_session(state, "query 초기화 타임아웃", mode="resume", force=True)
+                    log(f"{state.name}: query() init timeout (10s), retry={retry}")
+                    await self._restart_session(state, msg("reason_query_timeout"), mode="resume", force=True)
                     if retry < 2:
                         msg_data["retry_timeout"] = retry + 1
                         await state.message_queue.put(msg_data)
-                        log(f"{state.name}: 타임아웃 재시도 큐잉 ({retry+1}/2)")
+                        log(f"{state.name}: queueing timeout retry ({retry+1}/2)")
                         await asyncio.sleep((retry + 1) * 2)
                     else:
                         state.channel.send_sync(msg("timeout_exhausted", text=msg_data['text'][:200]))
                     state.busy = False
                     continue
 
-                live_msg_id = ""  # 현재 editMessage 대상 (str, channel 인터페이스)
-                live_lines = []  # 현재 메시지에 쌓인 텍스트
-                tool_lines = []  # 도구 호출 임시 버퍼 (텍스트 오면 정리)
-                last_tool_name = ""  # 마지막 도구명 (ToolResult 판별용)
+                live_msg_id = ""  # current editMessage target (str, channel interface)
+                live_lines = []  # text accumulated in the current message
+                tool_lines = []  # temporary tool call buffer (cleared when text arrives)
+                last_tool_name = ""  # last tool name (to identify the ToolResult)
                 msg_count = 0
                 last_edit = 0.0
-                edit_interval = 1.0  # 적응형 edit 간격 (초)
-                query_start = time.time()  # 빠른 응답 감지용
-                consecutive_edit_fails = 0  # 연속 edit 실패 횟수
-                last_progress_notify = 0  # 마지막 중간 알림 시각
+                edit_interval = 1.0  # adaptive edit interval (seconds)
+                query_start = time.time()  # for detecting fast replies
+                consecutive_edit_fails = 0  # consecutive edit failures
+                last_progress_notify = 0  # time of the last progress notice
                 bot_token = state.config["bot_token"]
                 ch = state.channel
 
                 async for sdk_msg in client.receive_messages():
                     if sdk_msg is None:
                         continue
-                    # client가 교체되었으면 (재시작) 현재 루프 중단
+                    # if the client was replaced (restart), stop the current loop
                     if state.client is not client:
-                        log(f"{state.name}: client 교체 감지 → receive_messages 중단")
+                        log(f"{state.name}: client replacement detected → stopping receive_messages")
                         break
-                    # 메시지 수신 타임아웃 체크 (10분 무응답 → 강제 중단)
+                    # message receive timeout check (10 min without a message → force stop)
                     if time.time() - state.busy_since > 600 and msg_count == 0:
-                        log(f"{state.name}: 10분간 메시지 없음 → 강제 중단")
+                        log(f"{state.name}: no messages for 10 min → force stop")
                         break
-                    # 느린 응답 중간 알림 (2분마다)
+                    # progress notice for slow replies (every 2 min)
                     elapsed = time.time() - state.busy_since
                     if elapsed > 120 and time.time() - last_progress_notify > 120:
                         mins = int(elapsed / 60)
@@ -891,12 +892,12 @@ class TeleClaw:
                         for block in sdk_msg.content:
                             block_type = type(block).__name__
                             if hasattr(block, "text") and block.text.strip():
-                                # TextBlock — 텍스트 응답 도착하면 도구 요약 정리
+                                # TextBlock — when a text reply arrives, flush the tool summary
                                 if tool_lines:
                                     live_lines.append(self._format_tool_line(tool_lines))
                                     tool_lines = []
                                 live_lines.append(block.text)
-                                log(f"{state.name}: [block] TextBlock ({len(block.text)}자)")
+                                log(f"{state.name}: [block] TextBlock ({len(block.text)} chars)")
                             elif block_type == "ToolUseBlock":
                                 tool_name = getattr(block, "name", "tool")
                                 tool_input = getattr(block, "input", {})
@@ -907,20 +908,20 @@ class TeleClaw:
                                 log(f"{state.name}: [block] ToolUse: {self._tool_summary(tool_name, tool_input)}")
                             elif block_type == "ThinkingBlock":
                                 thinking_text = getattr(block, "thinking", "") or ""
-                                log(f"{state.name}: [block] Thinking ({len(thinking_text)}자)")
+                                log(f"{state.name}: [block] Thinking ({len(thinking_text)} chars)")
                                 continue
                             else:
                                 log(f"{state.name}: [block] {block_type} (skip)")
                                 continue
 
-                            # 실시간 전송/수정
+                            # live send/edit
                             now = time.time()
                             display = list(live_lines)
                             if tool_lines:
                                 display.append(self._format_tool_line(tool_lines))
                             content = "\n".join(display)
 
-                            # 새 메시지 분리 기준: 10초+ 간격 또는 2000자 초과
+                            # start a new message after a 10s+ gap or past 2000 chars
                             need_new_msg = (
                                 live_msg_id and (
                                     now - last_edit >= 10.0 or
@@ -928,7 +929,7 @@ class TeleClaw:
                                 )
                             )
                             if need_new_msg and len(live_lines) > 1:
-                                # 기존 메시지 마무리 후 새 메시지 시작 (2줄 이상일 때만)
+                                # finish the current message and start a new one (only with 2+ lines)
                                 prev = "\n".join(live_lines[:-1])
                                 await ch.edit(live_msg_id, prev)
                                 new_start = live_lines[-1]
@@ -937,14 +938,14 @@ class TeleClaw:
                                 tool_lines = []
                                 last_edit = now
                             elif not live_msg_id:
-                                # 첫 메시지: 3초 버퍼링 — 빠른 응답은 edit 없이 최종 send로
+                                # first message: buffer for 3s — fast replies go out in the final send without edits
                                 elapsed_since_start = now - query_start
                                 if elapsed_since_start >= 3.0:
                                     live_msg_id = await ch.send(content)
                                     last_edit = now
-                                # 3초 미만이면 전송 보류 (최종 전송에서 한 번에)
+                                # hold sending under 3s (sent all at once in the final send)
                             elif now - last_edit >= edit_interval:
-                                # 4096자 한도 대비 여유 (prefix + 마진)
+                                # headroom under the 4096-char limit (prefix + margin)
                                 max_len = 4096 - len(f"[{state.name}] ") - 50
                                 stable_content = ch.format(content)
                                 if len(content) > max_len:
@@ -959,38 +960,38 @@ class TeleClaw:
                                     if not ok:
                                         consecutive_edit_fails += 1
                                         if consecutive_edit_fails >= 3:
-                                            # rate limit 대응: 간격 증가
+                                            # rate limit: increase the interval
                                             edit_interval = min(edit_interval * 2, 5.0)
                                             consecutive_edit_fails = 0
                                         live_msg_id = await ch.send(stable_content, use_markup=True)
                                     else:
                                         consecutive_edit_fails = 0
-                                        # 성공 시 간격 점진 복원
+                                        # on success, gradually restore the interval
                                         if edit_interval > 1.0:
                                             edit_interval = max(edit_interval - 0.5, 1.0)
                                 last_edit = now
 
                     elif isinstance(sdk_msg, UserMessage):
-                        # ToolResult 처리 — ai-chat 결과는 전문, 나머지는 요약
+                        # ToolResult handling — ai-chat results in full, others summarized
                         result_text = ""
                         for block in sdk_msg.content:
                             bt = type(block).__name__
                             if hasattr(block, "text") and block.text:
                                 result_text = block.text.strip()
-                                log(f"{state.name}: [user-block] {bt} ({len(result_text)}자)")
+                                log(f"{state.name}: [user-block] {bt} ({len(result_text)} chars)")
                                 break
                             elif hasattr(block, "content") and isinstance(block.content, str):
                                 result_text = block.content.strip()
-                                log(f"{state.name}: [user-block] {bt} ({len(result_text)}자)")
+                                log(f"{state.name}: [user-block] {bt} ({len(result_text)} chars)")
                                 break
                             else:
                                 log(f"{state.name}: [user-block] {bt} (skip)")
                         if result_text:
                             is_ai_chat = last_tool_name.startswith("mcp__ai_chat__") or last_tool_name.startswith("mcp__ai-chat__")
                             if is_ai_chat:
-                                # ai-chat 결과는 별도 새 메시지로 분리
+                                # ai-chat results go into a separate new message
                                 if live_msg_id:
-                                    # live_lines가 비어있어도 tool_lines로 이전 메시지 마무리
+                                    # finish the previous message with tool_lines even if live_lines is empty
                                     prev_content = "\n".join(live_lines) if live_lines else ""
                                     if tool_lines:
                                         tl = self._format_tool_line(tool_lines)
@@ -1000,7 +1001,7 @@ class TeleClaw:
                                     tool_lines = []
                                     live_lines = []
                                     live_msg_id = ""
-                                # JSON {"result":"..."} 파싱
+                                # JSON {"result":"..."} parsing
                                 display_text = result_text
                                 try:
                                     parsed = json.loads(result_text)
@@ -1008,28 +1009,28 @@ class TeleClaw:
                                         display_text = parsed["result"]
                                 except (json.JSONDecodeError, TypeError):
                                     pass
-                                # ai-chat 결과는 즉시 별도 메시지로 전송 (✅보다 먼저 표시)
+                                # send ai-chat results immediately as a separate message (shown before ✅)
                                 mcp_display = f"\U0001f4ac {display_text}"
                                 for mcp_chunk in ch.split(mcp_display):
                                     await ch.send(mcp_chunk)
-                                log(f"{state.name}: [result] ai-chat ({len(result_text)}자) → 즉시 전송")
+                                log(f"{state.name}: [result] ai-chat ({len(result_text)} chars) → sent immediately")
                             elif last_tool_name in ("Edit", "Write", "NotebookEdit", "Read", "Grep", "Glob"):
-                                # 코드/파일 관련 결과는 길이만 표시
+                                # code/file results show only their length
                                 if tool_lines:
-                                    tool_lines[-1] += f" ({len(result_text)}자)"
-                                log(f"{state.name}: [result] {last_tool_name} ({len(result_text)}자)")
+                                    tool_lines[-1] += msg("tool_result_chars", n=len(result_text))
+                                log(f"{state.name}: [result] {last_tool_name} ({len(result_text)} chars)")
                             elif len(result_text) <= 500:
                                 if tool_lines:
                                     live_lines.append(self._format_tool_line(tool_lines))
                                     tool_lines = []
                                 live_lines.append(result_text)
-                                log(f"{state.name}: [result] short ({len(result_text)}자)")
+                                log(f"{state.name}: [result] short ({len(result_text)} chars)")
                             else:
                                 if tool_lines:
-                                    tool_lines[-1] += f" ({len(result_text)}자)"
-                                log(f"{state.name}: [result] long ({len(result_text)}자)")
+                                    tool_lines[-1] += msg("tool_result_chars", n=len(result_text))
+                                log(f"{state.name}: [result] long ({len(result_text)} chars)")
 
-                            # 실시간 업데이트
+                            # live update
                             now = time.time()
                             display = list(live_lines)
                             if tool_lines:
@@ -1059,12 +1060,12 @@ class TeleClaw:
                             self._save_session_ids()
                         if sdk_msg.usage:
                             log(f"{state.name}: [usage] {sdk_msg.usage}")
-                        # 라이브 스트리밍이 비었으면 ResultMessage.result로 폴백
+                        # if live streaming was empty, fall back to ResultMessage.result
                         if not live_lines and sdk_msg.result:
                             result_text = sdk_msg.result.strip()
                             if result_text:
                                 live_lines.append(result_text)
-                                log(f"{state.name}: [result-fallback] {len(result_text)}자")
+                                log(f"{state.name}: [result-fallback] {len(result_text)} chars")
                         if hasattr(sdk_msg, "total_cost_usd") and sdk_msg.total_cost_usd:
                             log(f"{state.name}: [cost] ${sdk_msg.total_cost_usd:.4f}")
                         break
@@ -1077,16 +1078,16 @@ class TeleClaw:
                         event = getattr(sdk_msg, "event", "?")
                         log(f"{state.name}: [stream] event={event}")
 
-                # 최종 업데이트 (HTML 변환 적용)
+                # final update (with HTML conversion)
                 if tool_lines:
                     live_lines.append(self._format_tool_line(tool_lines))
                 if live_lines:
                     content = "\n".join(live_lines)
-                    # plain text에서 분할 후 각 청크별 HTML 변환 (태그 절단 방지)
+                    # split the plain text, then convert each chunk to HTML (avoids cutting tags)
                     chunks = [ch.format(c) for c in ch.split(content)]
                     elapsed = time.time() - query_start
-                    # 빠른 응답(3초 이내): editMessage 대신 새 메시지로 전송
-                    # → editMessage 지연으로 인한 "답변 밀림" 방지
+                    # fast reply (within 3s): send as a new message instead of editMessage
+                    # → prevents "lagging replies" caused by editMessage delays
                     if live_msg_id and elapsed >= 3.0:
                         ok = await ch.edit(live_msg_id, chunks[0], use_markup=True)
                         if not ok:
@@ -1094,23 +1095,23 @@ class TeleClaw:
                         for chunk in chunks[1:]:
                             await ch.send(chunk, use_markup=True)
                     else:
-                        # 빠른 응답이거나 live_msg_id 없음: 새 메시지로 전송
+                        # fast reply or no live_msg_id: send as a new message
                         if live_msg_id:
-                            # 기존 live 메시지 삭제 (중복 방지)
+                            # delete the existing live message (avoid duplicates)
                             await ch.delete(live_msg_id)
                         for chunk in chunks:
                             await ch.send(chunk, use_markup=True)
-                    log(f"{state.name}: 최종 전송 ({len(content)}자, {len(chunks)}청크, {elapsed:.1f}s)")
+                    log(f"{state.name}: final send ({len(content)} chars, {len(chunks)} chunks, {elapsed:.1f}s)")
                 else:
-                    log(f"{state.name}: 빈 응답")
+                    log(f"{state.name}: empty reply")
                     await ch.send(msg("empty_response"))
 
-                log(f"{state.name}: 처리 완료")
+                log(f"{state.name}: done processing")
 
-                # 처리 완료 알림 (새 메시지, 알림 옴)
+                # completion notice (new message, triggers a notification)
                 asyncio.create_task(ch.send(ICON_DONE))
 
-                # 처리 완료 후 offset 확정 (재시작 시 미처리 메시지 재수신 보장)
+                # commit the offset after processing (unprocessed messages are re-received after a restart)
                 processed_update_id = msg_data.get("update_id", 0)
                 if processed_update_id:
                     bot_id = state.config["bot_id"]
@@ -1120,80 +1121,80 @@ class TeleClaw:
 
                 state.error_count = 0
                 state.query_count += 1
-                # 정상 완료 → resume_count 리셋
+                # completed normally → reset resume_count
                 if state.resume_count > 0:
-                    log(f"{state.name}: 정상 완료 → resume_count 리셋 ({state.resume_count} → 0)")
+                    log(f"{state.name}: completed normally → resume_count reset ({state.resume_count} → 0)")
                     state.resume_count = 0
 
-                # 자동 리셋 제거 — Claude auto-compact가 컨텍스트 관리
-                # 필요 시 수동으로 /reset 사용
+                # auto-reset removed — Claude auto-compact manages context
+                # use /reset manually if needed
 
             except BaseException as e:
-                # CancelledError 포함 — 루프가 죽지 않도록 모든 예외 포착
+                # includes CancelledError — catch everything so the loop doesn't die
                 err_name = type(e).__name__
                 err_str = str(e)
-                log(f"{state.name}: 처리 에러 ({err_name}): {e}")
+                log(f"{state.name}: processing error ({err_name}): {e}")
                 state.error_count += 1
 
-                # 이미지 누적 에러 → 자동 reset (resume으로는 해결 불가)
+                # accumulated image error → automatic reset (resume can't fix it)
                 if "dimension limit" in err_str or "many-image" in err_str:
-                    log(f"{state.name}: 이미지 누적 에러 감지 → reset 모드 재시작")
+                    log(f"{state.name}: accumulated image error detected → restarting in reset mode")
                     state.channel.send_sync(msg("image_overflow"))
-                    await self._restart_session(state, "이미지 누적 에러", mode="reset", force=True)
+                    await self._restart_session(state, msg("reason_image_overflow"), mode="reset", force=True)
                     continue
 
                 if state.restarting:
-                    # 리셋/재시작으로 인한 프로세스 종료 — 의도된 에러이므로 재시도 불필요
-                    log(f"{state.name}: 재시작 중 에러 무시 ({err_name})")
+                    # process exit caused by a reset/restart — intended, so no retry
+                    log(f"{state.name}: ignoring error during restart ({err_name})")
                 elif isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
-                    # cancel/interrupt는 재시도 없이 다음 메시지로
-                    log(f"{state.name}: {err_name} — 루프 유지, 다음 메시지 대기")
+                    # cancel/interrupt: move on to the next message without retrying
+                    log(f"{state.name}: {err_name} — loop kept alive, waiting for the next message")
                 else:
                     retry = msg_data.get("retry_error", 0)
                     if retry < 1:
                         msg_data["retry_error"] = retry + 1
                         await state.message_queue.put(msg_data)
-                        log(f"{state.name}: 에러 재시도 큐잉 ({retry+1}/1)")
+                        log(f"{state.name}: queueing error retry ({retry+1}/1)")
                         await asyncio.sleep(2)
                     else:
                         state.channel.send_sync(msg("process_fail", error=e, text=msg_data['text'][:200]))
                 if state.error_count >= 3:
-                    await self._restart_session(state, f"연속 에러 {state.error_count}회")
+                    await self._restart_session(state, msg("reason_consecutive_errors", count=state.error_count))
             finally:
                 state.busy = False
                 state.busy_since = 0.0
 
     async def _bot_poll_loop(self, state: SessionState):
-        """봇별 독립 폴링 태스크 — 각 봇이 병렬로 long polling"""
+        """Independent polling task per bot — each bot long-polls in parallel"""
         name = state.name
         bot_token = state.config["bot_token"]
         bot_id = state.config["bot_id"]
         ch = state.channel
 
-        # offset 복원 (저장된 offset이 있으면 사용, 없으면 flush)
+        # restore offset (use the saved one if present, otherwise flush)
         saved_offset = self._load_offset(bot_id)
         if saved_offset is not None:
             self._update_ids[bot_id] = saved_offset
             ch.set_offset(saved_offset + 1)
-            log(f"{name}: offset 복원 = {saved_offset}")
+            log(f"{name}: offset restored = {saved_offset}")
         else:
-            # flush: 기존 메시지를 모두 소비하여 offset 초기화
+            # flush: consume all pending messages to initialize the offset
             try:
                 flush_msgs = await ch.poll(timeout=0)
-                # poll 내부에서 offset이 자동 갱신됨
+                # poll updates the offset internally
                 last_offset = ch.get_offset() - 1 if ch.get_offset() > 0 else 0
                 self._update_ids[bot_id] = last_offset
-                log(f"{name}: offset 초기화 = {last_offset} (flushed {len(flush_msgs)})")
+                log(f"{name}: offset initialized = {last_offset} (flushed {len(flush_msgs)})")
             except Exception as e:
-                log(f"{name}: offset 초기화 실패: {e}")
+                log(f"{name}: offset init failed: {e}")
                 self._update_ids[bot_id] = 0
 
         error_count = 0
         _poll_count = 0
         while not self._shutdown:
             _poll_count += 1
-            if _poll_count % 20 == 0:  # ~10분마다 (25초 long poll × 20)
-                log(f"{name}: 폴링 루프 정상 (cycle={_poll_count}, errors={error_count})")
+            if _poll_count % 20 == 0:  # every ~10 min (25s long poll × 20)
+                log(f"{name}: polling loop healthy (cycle={_poll_count}, errors={error_count})")
             try:
                 messages = await ch.poll(timeout=25)
                 for m in messages:
@@ -1202,26 +1203,26 @@ class TeleClaw:
                     msg_id = int(msg_id_str) if msg_id_str else 0
                     from_id = m.get("from_id", "")
                     if not ALLOWED_USERS or (from_id and str(from_id) not in ALLOWED_USERS):
-                        log(f"{name}: 미허용 사용자 메시지 무시 (from_id={from_id})")
+                        log(f"{name}: ignoring message from unauthorized user (from_id={from_id})")
                         continue
                     msg_date = m.get("date", 0)
                     if msg_date < self._start_time:
-                        log(f"{name}: 오래된 메시지 스킵 (date={msg_date})")
+                        log(f"{name}: skipping old message (date={msg_date})")
                         continue
                     text = m.get("text", "")
                     is_edited = raw.get("_is_edited", False) if raw else False
                     files = m.get("files", [])
 
-                    # 이미지 메시지 처리
+                    # handle image messages
                     if not text and files:
                         for f_info in files:
                             if f_info.get("type") == "photo":
                                 photo_path = await self._download_photo_via_channel(ch, f_info["file_id"], name)
                                 if photo_path:
                                     caption = raw.get("caption", "") if raw else ""
-                                    text = f"이 이미지를 확인해줘: {photo_path}"
+                                    text = msg("prompt_check_image", path=photo_path)
                                     if caption:
-                                        text = f"{caption}\n\n이미지: {photo_path}"
+                                        text = msg("prompt_image_caption", caption=caption, path=photo_path)
                                 break
                             elif f_info.get("type") == "document":
                                 file_id = f_info.get("file_id", "")
@@ -1230,39 +1231,39 @@ class TeleClaw:
                                 if file_id:
                                     doc_path = await self._download_doc_via_channel(ch, file_id, file_name, name)
                                     if doc_path:
-                                        text = f"이 파일을 확인해줘: {doc_path}"
+                                        text = msg("prompt_check_file", path=doc_path)
                                         if caption:
-                                            text = f"{caption}\n\n파일: {doc_path}"
+                                            text = msg("prompt_file_caption", caption=caption, path=doc_path)
                                 break
 
                     if not text:
                         continue
 
                     if await asyncio.to_thread(self._handle_command, text, bot_token):
-                        log(f"{name}: 명령어 처리: {text}")
+                        log(f"{name}: handling command: {text}")
                         continue
 
                     sender = raw.get("from", {}).get("first_name", "") if raw else ""
-                    edit_tag = " [수정]" if is_edited else ""
+                    edit_tag = msg("edited_tag") if is_edited else ""
                     full_text = f"{sender}{edit_tag}: {text}"
 
-                    # 중복 메시지 제거 (message_id 기반)
+                    # drop duplicate messages (by message_id)
                     msg_key = f"{name}_{msg_id}"
                     if msg_key in self._last_msg_map:
                         continue
-                    # 네트워크 재전송 중복 제거 (같은 date + 같은 텍스트)
+                    # drop network-retransmit duplicates (same date + same text)
                     msg_date_key = f"{name}_d{msg_date}_{text}"
                     if msg_date_key in self._last_msg_map:
-                        log(f"{name}: 동일 date+텍스트 중복 스킵 (date={msg_date}): {text[:30]}")
+                        log(f"{name}: skipping duplicate with same date+text (date={msg_date}): {text[:30]}")
                         continue
                     self._last_msg_map[msg_key] = time.time()
                     self._last_msg_map[msg_date_key] = time.time()
-                    # 오래된 항목 정리 (100개 초과 시)
+                    # prune old entries (when over 100)
                     if len(self._last_msg_map) > 100:
                         cutoff = time.time() - 300
                         self._last_msg_map = {k: v for k, v in self._last_msg_map.items() if v > cutoff}
 
-                    # pause 상태: restart/reset 명령은 통과, 나머지 거부
+                    # paused: restart/reset commands pass, everything else is rejected
                     if db.is_paused(name):
                         text_lower = text.strip().lower()
                         if text_lower in ("restart", "reset", "재시작", "리셋", "/restart", "/reset"):
@@ -1271,21 +1272,21 @@ class TeleClaw:
                             db.push_command(name, "restart", f"force,{mode}" if mode != "resume" else "force")
                             await ch.send(msg("pause_unpause_restart", name=name), reply_to=msg_id_str)
                             self._save_offset(bot_id, ch.get_offset() - 1)
-                            log(f"{name}: PAUSED → 해제 (텔레그램 명령: {text_lower})")
+                            log(f"{name}: PAUSED → resumed (Telegram command: {text_lower})")
                             continue
                         await ch.send(msg("paused_hint", name=name), reply_to=msg_id_str)
                         self._save_offset(bot_id, ch.get_offset() - 1)
-                        log(f"{name}: PAUSED — 메시지 거부: {text[:50]}")
+                        log(f"{name}: PAUSED — message rejected: {text[:50]}")
                         continue
 
-                    # 수신 확인
+                    # receipt ack
                     if state.busy:
                         qsize = state.message_queue.qsize() + 1
                         await ch.send(msg("ack_busy", icon=ICON_THINKING, qsize=qsize))
                     else:
                         await ch.send(ICON_THINKING)
 
-                    # update_id 추적 (channel.poll이 offset 자동 관리하므로 현재 offset - 1)
+                    # track update_id (channel.poll manages the offset, so current offset - 1)
                     update_id = ch.get_offset() - 1
 
                     await state.message_queue.put({
@@ -1295,10 +1296,10 @@ class TeleClaw:
                         "retry_count": 0,
                         "queued_while_busy": state.busy,
                     })
-                    # 큐에 넣은 즉시 offset 갱신 + 파일 저장
+                    # update the offset + save to file right after enqueueing
                     self._update_ids[bot_id] = update_id
                     self._save_offset(bot_id, update_id)
-                    log(f"{name}: 메시지 수신: {text[:50]}")
+                    log(f"{name}: message received: {text[:50]}")
                 if error_count > 0:
                     error_count = 0
             except Exception as e:
@@ -1306,7 +1307,7 @@ class TeleClaw:
                 if error_count % 10 == 1:
                     import traceback
                     tb = traceback.format_exc()
-                    log(f"{name}: 폴링 에러 #{error_count}: {repr(e)}\n{tb}")
+                    log(f"{name}: polling error #{error_count}: {repr(e)}\n{tb}")
                 await asyncio.sleep(min(2 ** min(error_count, 5), 30))
 
     async def shutdown(self):
@@ -1314,11 +1315,11 @@ class TeleClaw:
         self._broadcast_sync(msg("sv_shutting_down"))
         if self._ahttp:
             await self._ahttp.aclose()
-        # ask 클라이언트 정리
+        # clean up the ask client
         if self._ask_client:
             await self._safe_disconnect(self._ask_client, "ask")
             self._ask_client = None
-        # 세션 클라이언트 disconnect
+        # disconnect session clients
         for name, state in self.sessions.items():
             if state.client:
                 await self._safe_disconnect(state.client, name)
@@ -1326,18 +1327,18 @@ class TeleClaw:
             state.connected = False
         self._write_status()
         _release_lock()
-        log("TeleClaw 종료")
+        log("TeleClaw stopped")
 
 
 async def main():
     for note in ensure_storage():
-        log(f"storage 마이그레이션: {note}")
+        log(f"storage migration: {note}")
 
     existing_pid = _find_existing_teleclaw()
     if existing_pid:
-        log(f"이미 실행 중인 TeleClaw 있음 (PID={existing_pid}), 종료")
+        log(f"TeleClaw already running (PID={existing_pid}), exiting")
         print(f"TeleClaw is already running (PID={existing_pid}).")
-        sys.exit(42)  # wrapper가 중복 실행 감지용 코드로 인식
+        sys.exit(42)  # the wrapper recognizes this code as 'already running'
 
     _write_lock()
     hub = TeleClaw()

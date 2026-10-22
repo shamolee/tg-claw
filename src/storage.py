@@ -1,4 +1,4 @@
-"""storage/ 디렉토리 준비, 레거시 logs/·data/ 마이그레이션, 업로드 정리"""
+"""Prepare storage/, migrate legacy logs/ and data/, prune old uploads"""
 
 import os
 import shutil
@@ -9,7 +9,7 @@ from .config import (
     UPLOAD_RETENTION_DAYS,
 )
 
-# 레거시 logs/ 안에 있던 로그가 아닌 파일들의 새 위치
+# New locations for the non-log files that used to live in legacy logs/
 _LEGACY_LOGS_MAP = {
     "session_ids.json": STATE_DIR,
     "teleclaw_status.json": STATE_DIR,
@@ -21,7 +21,7 @@ _LEGACY_LOGS_MAP = {
 
 
 def _migrate_dir(src_dir: str, dest_for) -> list[str]:
-    """src_dir의 항목을 dest_for(name)으로 이동. 대상이 이미 있으면 건너뜀. 비면 src_dir 삭제."""
+    """Move entries of src_dir to dest_for(name), skipping existing targets. Removes src_dir if empty."""
     notes = []
     for name in os.listdir(src_dir):
         dest = os.path.join(dest_for(name), name)
@@ -30,8 +30,8 @@ def _migrate_dir(src_dir: str, dest_for) -> list[str]:
         try:
             shutil.move(os.path.join(src_dir, name), dest)
             notes.append(f"{name} → {dest}")
-        except OSError as e:  # 다른 프로세스가 열고 있는 파일 (예: 구버전 task_out.log)
-            notes.append(f"{name} 이동 실패: {e}")
+        except OSError as e:  # file held open by another process (e.g. an old task_out.log)
+            notes.append(f"failed to move {name}: {e}")
     try:
         os.rmdir(src_dir)
     except OSError:
@@ -40,11 +40,11 @@ def _migrate_dir(src_dir: str, dest_for) -> list[str]:
 
 
 def ensure_storage() -> list[str]:
-    """storage 하위 디렉토리 생성 + 레거시 디렉토리 마이그레이션. 처리 내역 반환."""
+    """Create the storage subdirectories and migrate legacy dirs. Returns a list of what was done."""
     for d in (LOGS_DIR, LOCKS_DIR, STATE_DIR, UPLOADS_DIR):
         os.makedirs(d, exist_ok=True)
     notes = []
-    # 예전에는 config.py와 daemon이 서로 다른 기준 디렉토리를 쓸 수 있었으므로 둘 다 확인
+    # config.py and the daemon used to resolve different base dirs, so check both
     for base in {TELECLAW_DIR, _TELECLAW_DIR}:
         legacy_logs = os.path.join(base, "logs")
         if os.path.isdir(legacy_logs) and legacy_logs != LOGS_DIR:
@@ -56,7 +56,7 @@ def ensure_storage() -> list[str]:
 
 
 def prune_uploads() -> int:
-    """UPLOAD_RETENTION_DAYS보다 오래된 업로드 파일 삭제. 삭제 개수 반환."""
+    """Delete uploads older than UPLOAD_RETENTION_DAYS. Returns the number removed."""
     if UPLOAD_RETENTION_DAYS <= 0 or not os.path.isdir(UPLOADS_DIR):
         return 0
     cutoff = time.time() - UPLOAD_RETENTION_DAYS * 86400

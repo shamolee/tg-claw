@@ -1,4 +1,4 @@
-"""텔레그램 TeleClaw 패키지"""
+"""TeleClaw package for Telegram"""
 
 import asyncio
 
@@ -11,13 +11,13 @@ from .teleclaw import TeleClaw, main as _async_main
 
 
 def main():
-    """CLI 진입점 — 서브커맨드 지원.
+    """CLI entry point with subcommands.
 
-    teleclaw            → TeleClaw 실행
-    teleclaw install    → 시스템 서비스 등록
-    teleclaw uninstall  → 시스템 서비스 해제
-    teleclaw status     → 서비스 상태
-    teleclaw logs [N]   → 서비스 로그
+    teleclaw            → run TeleClaw
+    teleclaw install    → register the system service
+    teleclaw uninstall  → unregister the system service
+    teleclaw status     → service status
+    teleclaw logs [N]   → service logs
     """
     import sys
     args = sys.argv[1:]

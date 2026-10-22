@@ -1,4 +1,4 @@
-"""TeleClaw 명령어 핸들러"""
+"""TeleClaw command handlers"""
 
 import asyncio
 import json
@@ -28,18 +28,18 @@ def _spawn(teleclaw, coro):
 
 
 async def _do_interrupt(state, name: str, channel):
-    """세션의 현재 작업을 중단한다."""
+    """Interrupt the session's current task."""
     try:
         await state.client.interrupt()
-        log(f"{name}: interrupt 완료")
+        log(f"{name}: interrupt done")
         channel.send_sync(msg("interrupted", name=name))
     except Exception as e:
-        log(f"{name}: interrupt 실패: {e}")
+        log(f"{name}: interrupt failed: {e}")
         channel.send_sync(msg("interrupt_fail", name=name, error=e))
 
 
 def _find_session_by_token(sessions: dict, bot_token: str) -> str | None:
-    """bot_token에 해당하는 세션 이름을 반환한다. 없으면 None."""
+    """Return the session name for bot_token, or None."""
     for name, state in sessions.items():
         if state.config["bot_token"] == bot_token:
             return name
@@ -47,13 +47,13 @@ def _find_session_by_token(sessions: dict, bot_token: str) -> str | None:
 
 
 def _get_usage(http_client) -> str:
-    """Anthropic OAuth Usage API로 토큰 사용량 조회 (60초 캐시).
+    """Fetch token usage from the Anthropic OAuth Usage API (60s cache).
 
-    /usage 명령 수신 시 호출. http_client는 httpx.Client 인스턴스.
+    Called on the /usage command. http_client is an httpx.Client instance.
     """
     import os
     cache_path = Path(os.environ.get("TEMP", "/tmp")) / "claude-sv-usage.json"
-    # 캐시 확인
+    # Check cache
     try:
         if cache_path.exists():
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -62,7 +62,7 @@ def _get_usage(http_client) -> str:
     except Exception:
         pass
 
-    # OAuth 토큰 읽기
+    # Read OAuth token
     cred_path = Path.home() / ".claude" / ".credentials.json"
     try:
         creds = json.loads(cred_path.read_text(encoding="utf-8"))
@@ -70,7 +70,7 @@ def _get_usage(http_client) -> str:
     except Exception as e:
         return msg("usage_fail_cred", error=e)
 
-    # API 호출
+    # Call API
     try:
         r = http_client.get(
             "https://api.anthropic.com/api/oauth/usage",
@@ -88,7 +88,7 @@ def _get_usage(http_client) -> str:
 
     from .usage_fmt import usage_bar as _bar, reset_str as _reset_str
 
-    # API가 키는 주되 값을 null로 줄 수 있음 (예: 구독 유형에 따라) -> `or {}` 필요
+    # The API may return a key with a null value (e.g. depending on subscription type) -> needs `or {}`
     five = data.get("five_hour") or {}
     seven = data.get("seven_day") or {}
     sonnet = data.get("seven_day_sonnet") or {}
@@ -114,7 +114,7 @@ def _get_usage(http_client) -> str:
         lines.append("(no usage data returned by the API)")
 
     text = "\n".join(lines)
-    # 캐시 저장
+    # Store in cache
     try:
         cache_path.write_text(json.dumps({"_ts": time.time(), "_text": text}), encoding="utf-8")
     except Exception:
@@ -123,9 +123,9 @@ def _get_usage(http_client) -> str:
 
 
 def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
-    """텔레그램 메시지가 /로 시작할 때 호출. 처리했으면 True 반환.
+    """Called when a Telegram message starts with /. Returns True if handled.
 
-    지원 명령: /status, /esc, /pause, /restart, /reset, /log, /usage, /sys, /ask, /help
+    Supported: /status, /esc, /pause, /restart, /reset, /log, /usage, /sys, /ask, /help
     """
     text = text.strip()
     if not text.startswith("/"):
@@ -166,7 +166,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             return True
         if name and name in teleclaw.sessions:
             db.set_paused(name, False)
-            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], "/restart 명령", mode="resume", force=True, no_resume=no_resume))
+            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], msg("reason_restart_cmd"), mode="resume", force=True, no_resume=no_resume))
             tag = " (noresume)" if no_resume else ""
             channel.send_sync(msg("restart_requested", name=name, tag=tag))
         elif name:
@@ -184,7 +184,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
                 channel.send_sync(msg("already_paused", name=name))
                 return True
             db.set_paused(name, True)
-            # 세션 disconnect
+            # Disconnect the session
             state = teleclaw.sessions[name]
             old_client = state.client
             state.client = None
@@ -192,7 +192,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
                 _spawn(teleclaw, teleclaw._safe_disconnect(old_client, name))
             state.connected = False
             state.busy = False
-            log(f"{name}: 일시정지됨 (/pause 명령)")
+            log(f"{name}: paused (/pause command)")
             channel.send_sync(msg("paused", name=name))
         elif name:
             channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
@@ -220,7 +220,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             name = _find_session_by_token(teleclaw.sessions, bot_token)
         if name and name in teleclaw.sessions:
             db.set_paused(name, False)
-            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], "/reset 명령 (컨텍스트 초기화)", mode="reset", force=True))
+            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], msg("reason_reset_cmd"), mode="reset", force=True))
             channel.send_sync(msg("reset_requested", name=name))
         elif name:
             channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
@@ -228,7 +228,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
 
     if cmd in ("/log", "/l"):
         n = int(arg) if arg and arg.isdigit() else 20
-        n = min(n, 50)  # 텔레그램 메시지 길이 제한
+        n = min(n, 50)  # Telegram message length limit
         try:
             with open(LOG_FILE, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -247,7 +247,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         return True
 
     if cmd == "/ctx":
-        # 각 세션의 마지막 usage 로그에서 컨텍스트 사용량 추정
+        # Estimate context usage from each session's last usage log line
         lines = [msg("ctx_header")]
         try:
             with open(LOG_FILE, "r", encoding="utf-8") as f:

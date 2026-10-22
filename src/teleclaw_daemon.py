@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-TeleClaw 래퍼 — teleclaw 패키지를 감싸서 자동 재시작 + 데스루프 방지.
+TeleClaw wrapper — runs the teleclaw package with auto-restart + death-loop protection.
 
-- 30초 미만 생존 = 코드 에러로 판정
-- 지수 백오프: 3초 → 30초 → 5분 → 30분(최대)
-- 텔레그램 알림: 비정상 종료 시 에러 로그 전송
-- 백오프 대기 중 텔레그램 비상 명령어 수신
+- Survived under 30s = treated as a code error
+- Exponential backoff: 3s → 30s → 5min → 30min (max)
+- Telegram alerts: sends the error log on abnormal exit
+- Accepts Telegram emergency commands while backing off
 """
 
 import os
@@ -15,7 +15,7 @@ import json
 import subprocess
 import urllib.request
 
-# Windows cp949 인코딩 문제 방지
+# Avoid Windows cp949 encoding issues
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -33,7 +33,7 @@ BOT_TOKEN = BOT_TOKENS[0] if BOT_TOKENS else ""
 
 MIN_ALIVE_SEC = 30
 BACKOFF_BASE = 3
-BACKOFF_MAX = 1800  # 30분
+BACKOFF_MAX = 1800  # 30 min
 EXIT_ALREADY_RUNNING = 42
 
 
@@ -64,11 +64,11 @@ def tg_send(text: str):
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=15)
     except Exception as e:
-        log(f"텔레그램 알림 실패: {e}")
+        log(f"Telegram alert failed: {e}")
 
 
 def tg_get_updates(offset: int, timeout: int = 5, bot_token: str = "") -> tuple[list, int]:
-    """텔레그램 메시지 폴링. (messages, new_offset) 반환."""
+    """Poll Telegram messages. Returns (messages, new_offset)."""
     if not bot_token:
         bot_token = BOT_TOKEN
     try:
@@ -98,7 +98,7 @@ def tg_get_updates(offset: int, timeout: int = 5, bot_token: str = "") -> tuple[
 
 
 def tg_flush(offset: int, bot_token: str = "") -> int:
-    """기존 pending 메시지를 모두 소비하고 최신 offset 반환."""
+    """Consume all pending messages and return the latest offset."""
     msgs, new_offset = tg_get_updates(offset, timeout=0, bot_token=bot_token)
     while msgs:
         msgs, new_offset = tg_get_updates(new_offset, timeout=0, bot_token=bot_token)
@@ -106,7 +106,7 @@ def tg_flush(offset: int, bot_token: str = "") -> int:
 
 
 def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: float) -> str | None:
-    """비상 명령어 처리. 반환값: 'restart' = 즉시 재시작, 'kill' = 래퍼 종료, None = 계속 대기."""
+    """Handle emergency commands. Returns: 'restart' = restart now, 'kill' = exit wrapper, None = keep waiting."""
     cmd = text.strip().lower()
 
     if cmd in ("/log", "/logs", "로그"):
@@ -118,7 +118,7 @@ def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: 
                 lines.append(f"📋 {label}:")
                 lines.extend(l.rstrip() for l in tail)
             except Exception:
-                lines.append(f"📋 {label}: 읽기 실패")
+                lines.append(msg("daemon_read_failed", label=label))
             lines.append("")
         tg_send("\n".join(lines))
         return None
@@ -141,7 +141,7 @@ def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: 
         tg_send(msg("daemon_help"))
         return None
 
-    # /ask — Claude CLI로 임시 질문
+    # /ask — one-off question via the Claude CLI
     if text.strip().lower().startswith("/ask "):
         question = text.strip()[5:].strip()
         if not question:
@@ -156,9 +156,9 @@ def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: 
             )
             answer = r.stdout.strip()
             if answer:
-                # 4096자 제한
+                # 4096-char limit
                 if len(answer) > 3900:
-                    answer = answer[:3900] + "\n... (잘림)"
+                    answer = answer[:3900] + msg("truncated")
                 tg_send(msg("daemon_ask_response", answer=answer))
             elif r.stderr.strip():
                 tg_send(msg("daemon_ask_error", error=r.stderr[:1000]))
@@ -173,30 +173,30 @@ def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: 
     return None
 
 
-_poll_offsets = {token: 0 for token in BOT_TOKENS}  # 봇별 폴링 offset
+_poll_offsets = {token: 0 for token in BOT_TOKENS}  # polling offset per bot
 
 def wait_with_polling(wait_sec: int, fail_count: int, start_time: float) -> str | None:
-    """백오프 대기 중 텔레그램 폴링 (3개 봇 순차). 'restart'/'kill' 반환 시 즉시 탈출."""
+    """Poll Telegram while backing off (bots in turn). Returns early on 'restart'/'kill'."""
     global _poll_offsets
     deadline = time.time() + wait_sec
-    log(f"비상 폴링 시작 (대기 {wait_sec}초, {len(BOT_TOKENS)}개 봇)")
+    log(f"Emergency polling started (wait {wait_sec}s, {len(BOT_TOKENS)} bots)")
 
     while time.time() < deadline:
         remaining = int(deadline - time.time())
         if remaining <= 0:
             break
-        poll_timeout = min(remaining, 3)  # 봇당 3초 (3개 × 3초 ≈ 9초/라운드)
+        poll_timeout = min(remaining, 3)  # 3s per bot (3 bots × 3s ≈ 9s/round)
         for token in BOT_TOKENS:
             messages, _poll_offsets[token] = tg_get_updates(_poll_offsets[token], timeout=poll_timeout, bot_token=token)
             for text in messages:
-                log(f"비상 명령 수신: {text}")
+                log(f"Emergency command received: {text}")
                 result = handle_emergency_command(text, fail_count, wait_sec, start_time)
                 if result:
                     return result
             if time.time() >= deadline:
                 break
 
-    log("비상 폴링 종료")
+    log("Emergency polling ended")
     return None
 
 
@@ -229,7 +229,7 @@ def _acquire_lock() -> bool:
 
 
 def _release_lock():
-    # 다른 래퍼의 lock은 지우지 않음 (lock 획득 실패 후 종료 시에도 호출됨)
+    # Never delete another wrapper's lock (also called when exiting after failing to acquire it)
     try:
         with open(LOCK_FILE, "r", encoding="utf-8") as f:
             if json.load(f).get("pid") != os.getpid():
@@ -280,7 +280,7 @@ def _bind_children_to_self():
     info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
     ok = k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
     if not ok or not k32.AssignProcessToJobObject(job, k32.GetCurrentProcess()):
-        log(f"job object 설정 실패: {ctypes.get_last_error()}")
+        log(f"job object setup failed: {ctypes.get_last_error()}")
         return
     global _JOB_HANDLE
     _JOB_HANDLE = job  # keep open for the process lifetime
@@ -295,26 +295,26 @@ def main():
         print(msg("daemon_already_running"))
         sys.exit(0)
     for note in migrated:
-        log(f"storage 마이그레이션: {note}")
+        log(f"storage migration: {note}")
 
     _bind_children_to_self()
     fail_count = 0
     notified = False
     start_time = time.time()
-    recent_restarts = []  # 정상 종료 포함 전체 재시작 시각 기록
+    recent_restarts = []  # timestamps of all restarts, including clean exits
 
-    # 시작 시 기존 메시지 flush (모든 봇)
+    # Flush pending messages at startup (all bots)
     for token in BOT_TOKENS:
         _poll_offsets[token] = tg_flush(0, bot_token=token)
 
-    log("래퍼 시작")
+    log("Wrapper started")
 
     while True:
-        log(f"teleclaw 시작 (fail_count={fail_count})")
+        log(f"teleclaw starting (fail_count={fail_count})")
         sv_start = time.time()
 
-        # stderr만 파일로 캡처 (capture_output은 자식 프로세스 blocking 유발)
-        # stdout은 콘솔일 때만 그대로 보여줌. 서비스로 실행 시 teleclaw.log와 중복이라 버림
+        # Capture only stderr to a file (capture_output makes the child process block)
+        # Show stdout only on a console. As a service it duplicates teleclaw.log, so discard it
         with open(STDERR_LOG_FILE, "w", encoding="utf-8") as sf:
             proc = subprocess.run(
                 [PYTHON, "-m", "src"],
@@ -325,17 +325,17 @@ def main():
 
         elapsed = time.time() - sv_start
         exit_code = proc.returncode
-        log(f"teleclaw 종료 (exit_code={exit_code}, 생존={elapsed:.0f}초)")
+        log(f"teleclaw exited (exit_code={exit_code}, alive={elapsed:.0f}s)")
 
-        # 짧은 시간 반복 재시작 경고 (10분 내 5회 이상)
+        # Warn on frequent restarts (5+ within 10 min)
         now = time.time()
         recent_restarts.append(now)
         recent_restarts = [t for t in recent_restarts if now - t < 600]
         if len(recent_restarts) >= 5:
             tg_send(msg("daemon_frequent_restart", count=len(recent_restarts), elapsed=elapsed, code=exit_code))
-            log(f"잦은 재시작 경고: {len(recent_restarts)}회/10분")
+            log(f"Frequent restart warning: {len(recent_restarts)} in 10 min")
 
-        # 비정상 종료 시 stderr 기록
+        # Record stderr on abnormal exit
         if exit_code != 0:
             try:
                 with open(STDERR_LOG_FILE, "r", encoding="utf-8", errors="replace") as sf:
@@ -348,9 +348,9 @@ def main():
             except Exception:
                 pass
 
-        # 기존 인스턴스 실행 중 → 60초 폴링 대기
+        # Existing instance running → wait 60s while polling
         if exit_code == EXIT_ALREADY_RUNNING:
-            log("기존 TeleClaw 실행 중, 60초 대기")
+            log("TeleClaw already running, waiting 60s")
             result = wait_with_polling(60, fail_count, start_time)
             if result == "kill":
                 return
@@ -364,7 +364,7 @@ def main():
             fail_count += 1
             wait = min(BACKOFF_BASE * (2 ** (fail_count - 1)), BACKOFF_MAX)
 
-            # 첫 실패 + 5/10/20/50회마다 반복 알림
+            # Alert on the first failure, then every 5/10/20/50 failures
             should_notify = (
                 not notified
                 or fail_count in (5, 10, 20, 50)
@@ -373,11 +373,11 @@ def main():
             if should_notify:
                 tg_send(msg("daemon_crash", elapsed=elapsed, code=exit_code, fails=fail_count, wait=wait))
                 notified = True
-                log("텔레그램 알림 전송")
+                log("Telegram alert sent")
 
-            log(f"빠른 종료 감지 (연속 {fail_count}회), {wait}초 대기")
+            log(f"Fast exit detected ({fail_count} in a row), waiting {wait}s")
 
-        # 대기 중 텔레그램 폴링 (비상 명령 수신)
+        # Poll Telegram while waiting (emergency commands)
         result = wait_with_polling(wait, fail_count, start_time)
         if result == "kill":
             return

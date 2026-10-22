@@ -1,7 +1,7 @@
-"""텔레그램 채널 구현 — Channel 인터페이스의 텔레그램 구현체.
+"""Telegram channel — Telegram implementation of the Channel interface.
 
-기존 telegram_api.py의 함수를 Channel 인터페이스로 래핑.
-내부적으로 telegram_api 함수를 호출하여 하위 호환 유지.
+Wraps the existing telegram_api.py functions in the Channel interface.
+Calls telegram_api functions internally to stay backward compatible.
 """
 
 import httpx
@@ -11,7 +11,7 @@ from . import telegram_api as tg
 
 
 class TelegramChannel(Channel):
-    """텔레그램 봇 기반 채널."""
+    """Channel backed by a Telegram bot."""
 
     def __init__(self, bot_token: str, chat_id: str, bot_name: str = "", ahttp: httpx.AsyncClient = None):
         self._bot_token = bot_token
@@ -43,7 +43,7 @@ class TelegramChannel(Channel):
     def set_ahttp(self, ahttp: httpx.AsyncClient):
         self._ahttp = ahttp
 
-    # --- 수신 ---
+    # --- Receiving ---
 
     async def poll(self, timeout: int = 25) -> list:
         if not self._ahttp:
@@ -68,10 +68,10 @@ class TelegramChannel(Channel):
                 continue
             text = msg.get("text", "") or msg.get("caption", "")
             files = []
-            # 이미지
+            # Image
             if msg.get("photo"):
                 files.append({"type": "photo", "file_id": msg["photo"][-1]["file_id"]})
-            # 문서
+            # Document
             if msg.get("document"):
                 files.append({"type": "document", "file_id": msg["document"]["file_id"],
                               "name": msg["document"].get("file_name", "")})
@@ -84,11 +84,11 @@ class TelegramChannel(Channel):
                 "reply_to": str(msg.get("reply_to_message", {}).get("message_id", "")) if msg.get("reply_to_message") else "",
                 "files": files,
                 "date": msg.get("date", 0),
-                "_raw": raw,  # 텔레그램 전용 필드 접근용
+                "_raw": raw,  # for access to Telegram-only fields
             })
         return messages
 
-    # --- 전송 ---
+    # --- Sending ---
 
     async def send(self, text: str, reply_to: str = "", use_markup: bool = False) -> str:
         if not self._ahttp:
@@ -124,14 +124,14 @@ class TelegramChannel(Channel):
         except Exception:
             return False
 
-    # --- 전송 (동기) ---
+    # --- Sending (sync) ---
 
     def send_sync(self, text: str, use_markup: bool = False, notify: bool = False) -> str:
         mid = tg.send_telegram(text, self._bot_token, self._bot_name,
                                use_html=use_markup, notify=notify)
         return str(mid)
 
-    # --- 파일 전송 ---
+    # --- File sending ---
 
     async def send_photo(self, file_path: str, caption: str = "") -> str:
         if not self._ahttp:
@@ -153,7 +153,7 @@ class TelegramChannel(Channel):
         mid = tg.send_file_sync(self._bot_token, file_path, caption)
         return str(mid)
 
-    # --- 파일 다운로드 ---
+    # --- File download ---
 
     async def download_file(self, file_ref: str) -> bytes:
         if not self._ahttp:
@@ -172,7 +172,7 @@ class TelegramChannel(Channel):
         except Exception:
             return b""
 
-    # --- 포맷팅 ---
+    # --- Formatting ---
 
     def format(self, markdown_text: str) -> str:
         return tg._md_to_telegram_html(markdown_text)
@@ -180,7 +180,7 @@ class TelegramChannel(Channel):
     def split(self, text: str) -> list:
         return tg._split_message(text)
 
-    # --- 브로드캐스트 ---
+    # --- Broadcast ---
 
     def broadcast_sync(self, text: str):
         tg._notify_all(text)
@@ -189,7 +189,7 @@ class TelegramChannel(Channel):
         if self._ahttp:
             await tg.async_notify_all(self._ahttp, text)
 
-    # --- offset 관리 ---
+    # --- Offset management ---
 
     def get_offset(self) -> int:
         return self._offset

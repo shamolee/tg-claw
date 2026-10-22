@@ -1,4 +1,4 @@
-"""로깅 및 단일 인스턴스 보장"""
+"""Logging and single-instance enforcement"""
 
 import os
 import sys
@@ -7,19 +7,19 @@ import time
 
 from .config import LOG_FILE, LOCK_FILE, LOGS_DIR, _CONFIG_PATH
 
-# --- 로깅 ---
+# --- Logging ---
 
 _log_line_count = 0
 
 
 def _archive_lines(lines: list[str]):
-    """잘린 로그를 날짜별 파일에 보관. 7일 초과 아카이브 자동 삭제."""
+    """Archive trimmed log lines into per-day files. Archives older than 7 days are deleted."""
     try:
         date_str = time.strftime("%Y-%m-%d")
         archive_path = os.path.join(LOGS_DIR, f"teleclaw_{date_str}.log")
         with open(archive_path, "a", encoding="utf-8") as f:
             f.writelines(lines)
-        # 7일 초과 아카이브 삭제
+        # Delete archives older than 7 days
         import glob, datetime
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
         for path in glob.glob(os.path.join(LOGS_DIR, "teleclaw_????-??-??.log")):
@@ -47,18 +47,18 @@ def log(msg: str):
             with open(LOG_FILE, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             if len(lines) > 500:
-                # 잘리는 로그를 날짜별 파일에 보관
+                # Archive the trimmed lines into the per-day file
                 _archive_lines(lines[:-500])
                 with open(LOG_FILE, "w", encoding="utf-8") as f:
                     f.writelines(lines[-500:])
     except Exception as e:
-        print(f"[logging] 로그 파일 쓰기 실패: {e}", file=sys.stderr, flush=True)
+        print(f"[logging] failed to write log file: {e}", file=sys.stderr, flush=True)
 
 
-# --- 단일 인스턴스 보장 ---
+# --- Single-instance enforcement ---
 
 def _find_existing_teleclaw() -> int | None:
-    """이미 실행 중인 teleclaw 프로세스 PID 반환. lock file 기반."""
+    """Return the PID of an already running teleclaw process, based on the lock file."""
     import subprocess
     my_pid = os.getpid()
     if not os.path.exists(LOCK_FILE):
@@ -73,7 +73,7 @@ def _find_existing_teleclaw() -> int | None:
         if is_pid_alive(pid):
             return pid
     except Exception as e:
-        print(f"[logging] 기존 teleclaw 탐색 실패: {e}", file=sys.stderr, flush=True)
+        print(f"[logging] failed to check for existing teleclaw: {e}", file=sys.stderr, flush=True)
     return None
 
 
@@ -82,11 +82,11 @@ def _write_lock():
         with open(LOCK_FILE, "w") as f:
             json.dump({"pid": os.getpid(), "config": _CONFIG_PATH, "started": time.time()}, f)
     except Exception as e:
-        print(f"[logging] lock 파일 쓰기 실패: {e}", file=sys.stderr, flush=True)
+        print(f"[logging] failed to write lock file: {e}", file=sys.stderr, flush=True)
 
 
 def _release_lock():
     try:
         os.remove(LOCK_FILE)
     except Exception as e:
-        print(f"[logging] lock 파일 삭제 실패: {e}", file=sys.stderr, flush=True)
+        print(f"[logging] failed to delete lock file: {e}", file=sys.stderr, flush=True)

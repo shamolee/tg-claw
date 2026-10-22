@@ -1,4 +1,4 @@
-"""python -m src 지원"""
+"""Support for python -m src"""
 
 from . import main
 
