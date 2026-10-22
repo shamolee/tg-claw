@@ -1,11 +1,12 @@
-# TeleClaw
+# tg-claw
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776ab.svg)](https://python.org)
+[![Patreon](https://img.shields.io/badge/Patreon-Support-f96854?logo=patreon&logoColor=white)](https://www.patreon.com/shli)
 
 **Run and steer Claude Code sessions from Telegram.**
 
-TeleClaw keeps Claude Code working on your projects while you're away from your desk. Each project gets its own Telegram bot: you send instructions, watch the answer stream in, and restart or pause sessions from your phone.
+tg-claw keeps Claude Code working on your projects while you're away from your desk. Each project gets its own Telegram bot: you send instructions, watch the answer stream in, and restart or pause sessions from your phone.
 
 > A fork of [TeleClaw](https://github.com/gbongk/teleclaw) by gbongk.
 
@@ -26,10 +27,10 @@ TeleClaw keeps Claude Code working on your projects while you're away from your 
 
 ## How it works
 
-TeleClaw starts each project as a long-lived Claude Code session through the [Claude Code SDK](https://docs.anthropic.com/en/docs/claude-code/sdk), so Claude keeps its context between your messages. Events stream back over the SDK and are written into Telegram with `editMessage`, so you see the answer and tool calls as they happen.
+tg-claw starts each project as a long-lived Claude Code session through the [Claude Code SDK](https://docs.anthropic.com/en/docs/claude-code/sdk), so Claude keeps its context between your messages. Events stream back over the SDK and are written into Telegram with `editMessage`, so you see the answer and tool calls as they happen.
 
 ```
-You (Telegram) ──► TeleClaw ──► Claude Code SDK ──► Claude Code session (one per project)
+You (Telegram) ──► tg-claw ──► Claude Code SDK ──► Claude Code session (one per project)
        ▲                              │
        └──── live editMessage ◄───────┘  text, tool use, results
 ```
@@ -40,7 +41,7 @@ You (Telegram) ──► TeleClaw ──► Claude Code SDK ──► Claude Cod
 └──────┬───────┘
        │ long poll
 ┌──────▼───────────────────────────────────┐
-│            TeleClaw (asyncio)            │
+│             tg-claw (asyncio)            │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐     │
 │  │ Project1│ │ Project2│ │ Project3│ ... │
 │  └────┬────┘ └────┬────┘ └────┬────┘     │
@@ -50,7 +51,7 @@ You (Telegram) ──► TeleClaw ──► Claude Code SDK ──► Claude Cod
 │   Claude Code sessions (persistent)      │
 └──────────────────────────────────────────┘
         ▲
-        └── teleclaw_daemon: restarts TeleClaw if it crashes
+        └── tg_claw_daemon: restarts tg-claw if it crashes
 ```
 
 What you get:
@@ -64,7 +65,7 @@ What you get:
 
 ## Security
 
-TeleClaw gives whoever controls the bot a shell on your machine. Read this before you run it.
+tg-claw gives whoever controls the bot a shell on your machine. Read this before you run it.
 
 - **No permission prompts.** Sessions run with `bypassPermissions`, so Claude runs commands and edits files without asking. Only use it on machines and projects you trust.
 - **The bot token is a key to your machine.** Keep it in `config.yaml`, which is gitignored, and never commit it.
@@ -83,8 +84,8 @@ TeleClaw gives whoever controls the bot a shell on your machine. Read this befor
 ### Install
 
 ```bash
-git clone https://github.com/shamolee/teleclaw.git
-cd teleclaw
+git clone https://github.com/shamolee/tg-claw.git
+cd tg-claw
 python -m venv .venv
 # Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
 pip install -e .
@@ -111,19 +112,19 @@ projects:
 ### Run
 
 ```bash
-teleclaw                      # run in the foreground (no auto-restart)
-python -m src.teleclaw_daemon # run with the auto-restart wrapper
+tg-claw                       # run in the foreground (no auto-restart)
+python -m src.tg_claw_daemon  # run with the auto-restart wrapper
 ```
 
 Send your bot a message; it goes to Claude Code in that project's folder. To keep it running after reboots, see [Running as a service](#running-as-a-service).
 
 ## Configuration
 
-All settings live in `config.yaml`. TeleClaw looks for it in this order:
+All settings live in `config.yaml`. tg-claw looks for it in this order:
 
-1. the path in the `TELECLAW_CONFIG` environment variable
+1. the path in the `TG_CLAW_CONFIG` environment variable
 2. `config.yaml` in the repository root
-3. `~/.teleclaw/config.yaml`
+3. `~/.tg-claw/config.yaml`
 
 | Key | Default | Description |
 |---|---|---|
@@ -135,7 +136,7 @@ All settings live in `config.yaml`. TeleClaw looks for it in this order:
 | `icons` | | Optional `thinking` and `done` icons for status messages. |
 | `storage_dir` | `storage` | Where logs, locks, state and uploads go. A relative path is resolved from the folder containing `config.yaml`. |
 | `upload_retention_days` | `7` | Delete images and files received from Telegram after this many days. `0` keeps them forever. |
-| `service_name` | `TeleClaw` | Name of the Windows scheduled task. |
+| `service_name` | `tg-claw` | Name of the Windows scheduled task. |
 
 Several projects, each with its own bot:
 
@@ -151,7 +152,7 @@ projects:
 
 ## Languages
 
-Set `lang` in `config.yaml` to `en`, `ko`, `az`, `ru` or `tr`. The language applies to every Telegram message, the bot's `/` command menu, CLI output and notifications. It also applies to the prompts TeleClaw sends to Claude, such as "please check this image" or the auto-resume prompt, so Claude answers in the same language.
+Set `lang` in `config.yaml` to `en`, `ko`, `az`, `ru` or `tr`. The language applies to every Telegram message, the bot's `/` command menu, CLI output and notifications. It also applies to the prompts tg-claw sends to Claude, such as "please check this image" or the auto-resume prompt, so Claude answers in the same language.
 
 Translations are plain JSON files in [`src/resources/lang/`](src/resources/lang/), one per language. To add a language:
 
@@ -166,17 +167,17 @@ Keys missing from a language fall back to English.
 ### Linux and macOS (systemd user service)
 
 ```bash
-teleclaw install     # register and start; starts again on boot
-teleclaw status
-teleclaw logs [N]
-teleclaw uninstall
+tg-claw install     # register and start; starts again on boot
+tg-claw status
+tg-claw logs [N]
+tg-claw uninstall
 ```
 
 ### Windows
 
 There are two options.
 
-**Simple: `teleclaw install`.** Registers a scheduled task that starts the wrapper when you log in.
+**Simple: `tg-claw install`.** Registers a scheduled task that starts the wrapper when you log in.
 
 **Recommended for an always-on machine: [`win-scripts/`](win-scripts/).** Starts at boot and keeps running after you log out, without storing your password. In an elevated PowerShell:
 
@@ -191,11 +192,11 @@ Day-to-day scripts:
 | Script | Does |
 |---|---|
 | `win-scripts\start.ps1` | Start the task and show status |
-| `win-scripts\stop.ps1` | Stop the task and every TeleClaw process. Use an elevated shell if the task was started at boot. |
+| `win-scripts\stop.ps1` | Stop the task and every tg-claw process. Use an elevated shell if the task was started at boot. |
 | `win-scripts\restart.ps1` | Stop, then start |
 | `win-scripts\status.ps1` | Task state, running processes, bot status and the last log lines |
 
-The task runs [`run_teleclaw.cmd`](run_teleclaw.cmd). It uses `.venv` if one exists and writes the wrapper's output to `storage/logs/task_out.log`, keeping one previous copy once the log passes 5 MB.
+The task runs [`run_tg_claw.cmd`](run_tg_claw.cmd). It uses `.venv` if one exists and writes the wrapper's output to `storage/logs/task_out.log`, keeping one previous copy once the log passes 5 MB.
 
 ## Telegram commands
 
@@ -227,10 +228,10 @@ Send any normal message to give Claude an instruction. Photos and files are save
 
 ## CLI
 
-`teleclaw_ctl` does the same management from a terminal:
+`tg_claw_ctl` does the same management from a terminal:
 
 ```bash
-python -m src.teleclaw_ctl <command> [args]
+python -m src.tg_claw_ctl <command> [args]
 ```
 
 | Command | Short | Description |
@@ -242,7 +243,7 @@ python -m src.teleclaw_ctl <command> [args]
 | `restart [name]` | `r` | Restart a session |
 | `reset [name]` | | Restart a session with a fresh context |
 | `pause [name]` | `p` | Pause a session |
-| `tc` | | Restart TeleClaw itself |
+| `tc` | | Restart tg-claw itself |
 | `log [N]` | `l` | Last N log lines |
 | `help` | `h` | Command list |
 
@@ -262,35 +263,37 @@ Recovery works at three levels:
 
 1. **Session health check, every 2 minutes.** A session whose client is gone is **DEAD**, and one busy for 30+ minutes is **STUCK**. Both are restarted automatically. After a restart, Claude is asked to continue its unfinished work. A session is restarted at most 3 times in 30 minutes.
 2. **Watchdog.** If the app's event loop stops responding for 5 minutes, the process exits so the wrapper can start it again.
-3. **Wrapper (`teleclaw_daemon`).** Restarts the app when it exits. A clean run that lasted 30 seconds or more restarts after 3 s. Repeated quick crashes back off exponentially (3 s, 6 s, 12 s … up to 30 min) and you get a Telegram alert. While it waits, the wrapper still answers emergency commands: `/status`, `/log`, `/restart`, `/kill`, `/ask`, `/help`.
+3. **Wrapper (`tg_claw_daemon`).** Restarts the app when it exits. A clean run that lasted 30 seconds or more restarts after 3 s. Repeated quick crashes back off exponentially (3 s, 6 s, 12 s … up to 30 min) and you get a Telegram alert. While it waits, the wrapper still answers emergency commands: `/status`, `/log`, `/restart`, `/kill`, `/ask`, `/help`.
 
 The system service restarts the wrapper itself after a reboot.
 
 ## Files and storage
 
-Everything TeleClaw writes at runtime goes under `storage/`, or the folder set by `storage_dir`:
+Everything tg-claw writes at runtime goes under `storage/`, or the folder set by `storage_dir`:
 
 ```
 storage/
-  logs/      teleclaw.log (+ daily archives, kept 7 days), wrapper.log,
-             teleclaw_stderr.log, task_out.log
+  logs/      tg_claw.log (+ daily archives, kept 7 days), wrapper.log,
+             tg_claw_stderr.log, task_out.log
   locks/     single-instance locks for the app and the wrapper
   state/     SQLite state, Claude session IDs, Telegram offsets, status
   uploads/   images and files received from Telegram
 ```
 
-Only `state/` needs to survive. It holds each project's Claude session ID, so context survives restarts, and each bot's Telegram position, so old messages aren't processed again. Everything else is safe to delete while TeleClaw is stopped.
+Only `state/` needs to survive. It holds each project's Claude session ID, so context survives restarts, and each bot's Telegram position, so old messages aren't processed again. Everything else is safe to delete while tg-claw is stopped.
 
 Upgrading from a version that used `logs/` and `data/` in the repository root? Those folders are moved into `storage/` automatically the first time the new version starts.
+
+Upgrading from TeleClaw? Old file names such as `teleclaw.log`, `teleClaw.db` and the `teleclaw_state` table are renamed automatically on first start, and the old `TELECLAW_CONFIG` variable and `~/.teleclaw/` folder still work. Reinstall the service (`tg-claw install` or `win-scripts\install_service_admin.ps1`), because its name and launch command changed.
 
 ## Project structure
 
 ```
-teleclaw/
+tg-claw/
 ├── src/
-│   ├── teleclaw.py           # core: sessions, polling, streaming, health checks
-│   ├── teleclaw_daemon.py    # auto-restart wrapper
-│   ├── teleclaw_ctl.py       # terminal CLI
+│   ├── tg_claw.py            # core: sessions, polling, streaming, health checks
+│   ├── tg_claw_daemon.py     # auto-restart wrapper
+│   ├── tg_claw_ctl.py        # terminal CLI
 │   ├── telegram_helper.py    # send text/photo/file to Telegram from a shell
 │   ├── telegram_api.py       # Telegram Bot API calls and text formatting
 │   ├── channel.py            # abstract chat channel
@@ -307,7 +310,7 @@ teleclaw/
 │   ├── usage_fmt.py          # usage formatting
 │   └── logging_utils.py      # logging and single-instance lock
 ├── win-scripts/              # Windows service install and control
-├── run_teleclaw.cmd          # launcher used by the Windows task
+├── run_tg_claw.cmd           # launcher used by the Windows task
 ├── tests/                    # unit tests + live smoke test
 └── config.example.yaml
 ```
@@ -319,7 +322,11 @@ pip install -e . pytest pytest-asyncio
 make test                 # python -m pytest tests/ -x -q
 ```
 
-`tests/test_smoke.py` checks a live installation (its logs, status file and running processes), so it's excluded from the normal test run. Run it directly with `python tests/test_smoke.py` on a machine where TeleClaw is running.
+`tests/test_smoke.py` checks a live installation (its logs, status file and running processes), so it's excluded from the normal test run. Run it directly with `python tests/test_smoke.py` on a machine where tg-claw is running.
+
+## Support
+
+If tg-claw saves you time, you can support its development on [Patreon](https://www.patreon.com/shli).
 
 ## Credits
 

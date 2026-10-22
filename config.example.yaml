@@ -1,12 +1,12 @@
-# TeleClaw configuration
+# tg-claw configuration
 # Copy this file to config.yaml and fill in your values.
 #   cp config.example.yaml config.yaml
 
 # Language: en / ko / az / ru / tr (see src/resources/lang/)
 lang: "en"
 
-# Windows scheduled task name (used by win-scripts/*.ps1, default TeleClaw)
-service_name: "TeleClaw"
+# Windows scheduled task name (used by win-scripts/*.ps1, default tg-claw)
+service_name: "tg-claw"
 
 # Runtime files location (logs/ locks/ state/ uploads/). Relative to this file
 storage_dir: "storage"

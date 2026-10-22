@@ -1,4 +1,4 @@
-"""Usage formatting helpers, shared by commands.py and teleclaw_ctl.py."""
+"""Usage formatting helpers, shared by commands.py and tg_claw_ctl.py."""
 
 from datetime import datetime, timezone
 

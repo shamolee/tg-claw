@@ -5,20 +5,22 @@ import sys
 
 # --- Load config.yaml ---
 
-_TELECLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# config.yaml lookup: TELECLAW_CONFIG env var → package parent dir → home dir
+_TG_CLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# config.yaml lookup: TG_CLAW_CONFIG env var → package parent dir → home dir
+# (TELECLAW_CONFIG and ~/.teleclaw are still accepted from before the rename)
 _CONFIG_PATH = ""
-_env_config = os.environ.get("TELECLAW_CONFIG", "")
+_env_config = os.environ.get("TG_CLAW_CONFIG") or os.environ.get("TELECLAW_CONFIG", "")
 for _candidate in [
     _env_config,
-    os.path.join(_TELECLAW_DIR, "config.yaml"),
+    os.path.join(_TG_CLAW_DIR, "config.yaml"),
+    os.path.join(os.path.expanduser("~"), ".tg-claw", "config.yaml"),
     os.path.join(os.path.expanduser("~"), ".teleclaw", "config.yaml"),
 ]:
     if _candidate and os.path.exists(_candidate):
         _CONFIG_PATH = _candidate
         break
 if not _CONFIG_PATH:
-    _CONFIG_PATH = os.path.join(_TELECLAW_DIR, "config.yaml")  # fallback (used for the "not found" warning)
+    _CONFIG_PATH = os.path.join(_TG_CLAW_DIR, "config.yaml")  # fallback (used for the "not found" warning)
 
 
 def _load_yaml(path: str) -> dict:
@@ -107,30 +109,30 @@ for name, info in _cfg.get("projects", {}).items():
 # --- Paths ---
 
 # Directories are relative to config.yaml (supports pip installs)
-TELECLAW_DIR = os.path.dirname(_CONFIG_PATH) if _CONFIG_PATH else _TELECLAW_DIR
+TG_CLAW_DIR = os.path.dirname(_CONFIG_PATH) if _CONFIG_PATH else _TG_CLAW_DIR
 
 # All runtime files live under storage_dir (relative paths are resolved against config.yaml)
-STORAGE_DIR = os.path.join(TELECLAW_DIR, os.path.expanduser(_cfg.get("storage_dir", "storage")))
+STORAGE_DIR = os.path.join(TG_CLAW_DIR, os.path.expanduser(_cfg.get("storage_dir", "storage")))
 LOGS_DIR = os.path.join(STORAGE_DIR, "logs")        # logs only
 LOCKS_DIR = os.path.join(STORAGE_DIR, "locks")      # single-instance locks
 STATE_DIR = os.path.join(STORAGE_DIR, "state")      # state that must survive restarts
 UPLOADS_DIR = os.path.join(STORAGE_DIR, "uploads")  # images/files received via Telegram
 
-LOG_FILE = os.path.join(LOGS_DIR, "teleclaw.log")
+LOG_FILE = os.path.join(LOGS_DIR, "tg_claw.log")
 WRAPPER_LOG_FILE = os.path.join(LOGS_DIR, "wrapper.log")
-STDERR_LOG_FILE = os.path.join(LOGS_DIR, "teleclaw_stderr.log")
-LOCK_FILE = os.path.join(LOCKS_DIR, "teleclaw.lock")
+STDERR_LOG_FILE = os.path.join(LOGS_DIR, "tg_claw_stderr.log")
+LOCK_FILE = os.path.join(LOCKS_DIR, "tg_claw.lock")
 WRAPPER_LOCK_FILE = os.path.join(LOCKS_DIR, "wrapper.lock")
-STATUS_FILE = os.path.join(STATE_DIR, "teleclaw_status.json")
+STATUS_FILE = os.path.join(STATE_DIR, "tg_claw_status.json")
 SESSION_IDS_FILE = os.path.join(STATE_DIR, "session_ids.json")
-DB_FILE = os.path.join(STATE_DIR, "teleClaw.db")
+DB_FILE = os.path.join(STATE_DIR, "tg_claw.db")
 CLAUDE_SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
 
 # Upload retention in days. 0 = never delete
 UPLOAD_RETENTION_DAYS = int(_cfg.get("upload_retention_days", 7))
 
 # Windows scheduled task name (service.py, win-scripts/*.ps1)
-SERVICE_NAME = _cfg.get("service_name", "TeleClaw")
+SERVICE_NAME = _cfg.get("service_name", "tg-claw")
 
 # --- Constants ---
 

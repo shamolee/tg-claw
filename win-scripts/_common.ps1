@@ -2,9 +2,10 @@
 # Sets $root (repo root), $ServiceName, $StorageDir, $LogsDir, $LocksDir, $StateDir.
 $root = Split-Path -Parent $PSScriptRoot
 
-# Same lookup order as src/config.py: TELECLAW_CONFIG -> repo root -> ~/.teleclaw
-$configPath = @($env:TELECLAW_CONFIG, (Join-Path $root 'config.yaml'),
-                (Join-Path $HOME '.teleclaw\config.yaml')) |
+# Same lookup order as src/config.py: TG_CLAW_CONFIG -> repo root -> ~/.tg-claw
+# (TELECLAW_CONFIG and ~/.teleclaw are still accepted from before the rename)
+$configPath = @($env:TG_CLAW_CONFIG, $env:TELECLAW_CONFIG, (Join-Path $root 'config.yaml'),
+                (Join-Path $HOME '.tg-claw\config.yaml'), (Join-Path $HOME '.teleclaw\config.yaml')) |
     Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 $configDir = if ($configPath) { Split-Path -Parent (Resolve-Path $configPath) } else { $root }
 
@@ -17,7 +18,7 @@ function Get-ConfigValue($key, $default) {
     return $default
 }
 
-$ServiceName = Get-ConfigValue 'service_name' 'TeleClaw'
+$ServiceName = Get-ConfigValue 'service_name' 'tg-claw'
 $storage = Get-ConfigValue 'storage_dir' 'storage'
 if ($storage.StartsWith('~')) { $storage = $HOME + $storage.Substring(1) }
 $StorageDir = if ([IO.Path]::IsPathRooted($storage)) { $storage } else { Join-Path $configDir $storage }

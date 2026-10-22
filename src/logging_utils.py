@@ -16,15 +16,15 @@ def _archive_lines(lines: list[str]):
     """Archive trimmed log lines into per-day files. Archives older than 7 days are deleted."""
     try:
         date_str = time.strftime("%Y-%m-%d")
-        archive_path = os.path.join(LOGS_DIR, f"teleclaw_{date_str}.log")
+        archive_path = os.path.join(LOGS_DIR, f"tg_claw_{date_str}.log")
         with open(archive_path, "a", encoding="utf-8") as f:
             f.writelines(lines)
         # Delete archives older than 7 days
         import glob, datetime
         cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-        for path in glob.glob(os.path.join(LOGS_DIR, "teleclaw_????-??-??.log")):
+        for path in glob.glob(os.path.join(LOGS_DIR, "tg_claw_????-??-??.log")):
             fname = os.path.basename(path)
-            date_part = fname.replace("teleclaw_", "").replace(".log", "")
+            date_part = fname.replace("tg_claw_", "").replace(".log", "")
             if date_part < cutoff:
                 os.remove(path)
     except Exception:
@@ -57,8 +57,8 @@ def log(msg: str):
 
 # --- Single-instance enforcement ---
 
-def _find_existing_teleclaw() -> int | None:
-    """Return the PID of an already running teleclaw process, based on the lock file."""
+def _find_existing_tg_claw() -> int | None:
+    """Return the PID of an already running tg-claw process, based on the lock file."""
     import subprocess
     my_pid = os.getpid()
     if not os.path.exists(LOCK_FILE):
@@ -73,7 +73,7 @@ def _find_existing_teleclaw() -> int | None:
         if is_pid_alive(pid):
             return pid
     except Exception as e:
-        print(f"[logging] failed to check for existing teleclaw: {e}", file=sys.stderr, flush=True)
+        print(f"[logging] failed to check for existing tg-claw: {e}", file=sys.stderr, flush=True)
     return None
 
 

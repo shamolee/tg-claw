@@ -12,4 +12,4 @@ for %%F in ("%OUT%") do if %%~zF GTR 5242880 move /y "%OUT%" "%OUT%.1" >nul
 cd /d "%~dp0"
 set "PY=%~dp0.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
-"%PY%" -m src.teleclaw_daemon >> "%OUT%" 2>&1
+"%PY%" -m src.tg_claw_daemon >> "%OUT%" 2>&1

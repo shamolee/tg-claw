@@ -5,7 +5,7 @@ run:
 	python -m src
 
 run-debug:
-	TELECLAW_DEBUG=1 python -m src
+	TG_CLAW_DEBUG=1 python -m src
 
 # Development
 dev:

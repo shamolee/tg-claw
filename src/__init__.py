@@ -1,23 +1,23 @@
-"""TeleClaw package for Telegram"""
+"""tg-claw package for Telegram"""
 
 import asyncio
 
-from .config import PROJECTS, CHAT_ID, TELECLAW_DIR, LOGS_DIR
-from .logging_utils import log, _find_existing_teleclaw, _write_lock, _release_lock
+from .config import PROJECTS, CHAT_ID, TG_CLAW_DIR, LOGS_DIR
+from .logging_utils import log, _find_existing_tg_claw, _write_lock, _release_lock
 from .channel import Channel
 from .channel_telegram import TelegramChannel
 from .session import SessionState
-from .teleclaw import TeleClaw, main as _async_main
+from .tg_claw import TgClaw, main as _async_main
 
 
 def main():
     """CLI entry point with subcommands.
 
-    teleclaw            → run TeleClaw
-    teleclaw install    → register the system service
-    teleclaw uninstall  → unregister the system service
-    teleclaw status     → service status
-    teleclaw logs [N]   → service logs
+    tg-claw            → run tg-claw
+    tg-claw install    → register the system service
+    tg-claw uninstall  → unregister the system service
+    tg-claw status     → service status
+    tg-claw logs [N]   → service logs
     """
     import sys
     args = sys.argv[1:]
@@ -41,7 +41,7 @@ def main():
 
 
 __all__ = [
-    "TeleClaw",
+    "TgClaw",
     "SessionState",
     "main",
     "log",

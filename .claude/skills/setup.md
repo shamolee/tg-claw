@@ -1,11 +1,11 @@
 ---
 name: setup
-description: TeleClaw first-time setup — install dependencies, create config.yaml, test the bot, and start the service.
+description: tg-claw first-time setup — install dependencies, create config.yaml, test the bot, and start the service.
 ---
 
-# /setup — TeleClaw first-time setup
+# /setup — tg-claw first-time setup
 
-Walk the user through setting up TeleClaw one step at a time. Wait for their answer before moving on.
+Walk the user through setting up tg-claw one step at a time. Wait for their answer before moving on.
 
 ## Step 1: Check prerequisites
 
@@ -54,36 +54,36 @@ projects:
 From inside the project folder, so the helper picks that project's bot:
 
 ```bash
-python -m src.telegram_helper text "TeleClaw setup complete!"
+python -m src.telegram_helper text "tg-claw setup complete!"
 ```
 
 This works from any folder because Step 2 installed the package; keep the venv active. If no message arrives, have the user check the token and user ID, and make sure they've pressed **Start** in the chat with their bot.
 
 ## Step 5: Start as a service
 
-- **Linux / macOS:** `teleclaw install`
+- **Linux / macOS:** `tg-claw install`
 - **Windows:** offer two options:
-  - `teleclaw install`: starts when the user logs in.
+  - `tg-claw install`: starts when the user logs in.
   - `win-scripts\install_service_admin.ps1`, in an elevated PowerShell: starts at boot and keeps running after logout. Recommended for an always-on machine.
 
 ## Step 6: More projects (optional)
 
 Ask: "Add another project? Each one needs its own bot from @BotFather."
 
-For each, repeat the questions for token, folder and name, and add it under `projects:`. Restart the service afterwards (`win-scripts\restart.ps1` on Windows, or `teleclaw uninstall` + `teleclaw install`).
+For each, repeat the questions for token, folder and name, and add it under `projects:`. Restart the service afterwards (`win-scripts\restart.ps1` on Windows, or `tg-claw uninstall` + `tg-claw install`).
 
 ## Done
 
 Show:
 
 ```
-TeleClaw is running.
+tg-claw is running.
 
 Message your bot on Telegram to talk to Claude Code in that project.
 
 Useful commands:
   /status          session health
   /help            all commands
-  teleclaw status  service status
-  teleclaw logs    recent logs
+  tg-claw status  service status
+  tg-claw logs    recent logs
 ```

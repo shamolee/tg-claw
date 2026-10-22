@@ -27,4 +27,4 @@ class SessionState:
     resume_count: int = 0  # consecutive auto-resumes (reset on normal completion)
     last_restart_mode: str = ""  # last restart mode (resume/reset/crash)
     was_busy_before_restart: bool = False  # whether the session was busy before the restart
-    no_resume_before_restart: bool = False  # prevents an auto-resume loop on TeleClaw/flag restarts
+    no_resume_before_restart: bool = False  # prevents an auto-resume loop on tg-claw/flag restarts

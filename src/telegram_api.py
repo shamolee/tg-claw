@@ -105,7 +105,7 @@ def send_ack(bot_token: str, msg_id: int, bot_name: str = ""):
 def _build_multipart(chat_id: str, field: str, file_path: str, caption: str = "") -> tuple[bytes, str]:
     """Build a multipart/form-data body. Returns: (body_bytes, boundary)"""
     import mimetypes
-    boundary = "----TeleClawBoundary"
+    boundary = "----tg-clawBoundary"
     body = b""
     body += f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode()
     if caption:

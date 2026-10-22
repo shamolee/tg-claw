@@ -1,11 +1,12 @@
 """Prepare storage/, migrate legacy logs/ and data/, prune old uploads"""
 
+import glob
 import os
 import shutil
 import time
 
 from .config import (
-    _TELECLAW_DIR, TELECLAW_DIR, LOGS_DIR, LOCKS_DIR, STATE_DIR, UPLOADS_DIR,
+    _TG_CLAW_DIR, TG_CLAW_DIR, LOGS_DIR, LOCKS_DIR, STATE_DIR, UPLOADS_DIR,
     UPLOAD_RETENTION_DAYS,
 )
 
@@ -18,6 +19,33 @@ _LEGACY_LOGS_MAP = {
     "images": UPLOADS_DIR,
     "files": UPLOADS_DIR,
 }
+
+# Files named before the TeleClaw → tg-claw rename: (dir, old name, new name)
+_LEGACY_NAMES = [
+    (LOGS_DIR, "teleclaw.log", "tg_claw.log"),
+    (LOGS_DIR, "teleclaw_stderr.log", "tg_claw_stderr.log"),
+    (LOCKS_DIR, "teleclaw.lock", "tg_claw.lock"),
+    (STATE_DIR, "teleclaw_status.json", "tg_claw_status.json"),
+    (STATE_DIR, "teleClaw.db", "tg_claw.db"),
+    (STATE_DIR, "teleClaw.db-wal", "tg_claw.db-wal"),
+    (STATE_DIR, "teleClaw.db-shm", "tg_claw.db-shm"),
+]
+
+
+def _rename_legacy_names() -> list[str]:
+    """Rename pre-rename files inside storage/, skipping any whose new name already exists."""
+    pairs = [(os.path.join(d, old), os.path.join(d, new)) for d, old, new in _LEGACY_NAMES]
+    for path in glob.glob(os.path.join(LOGS_DIR, "teleclaw_????-??-??.log")):  # daily log archives
+        pairs.append((path, os.path.join(LOGS_DIR, "tg_claw_" + os.path.basename(path)[len("teleclaw_"):])))
+    notes = []
+    for old, new in pairs:
+        if os.path.exists(old) and not os.path.exists(new):
+            try:
+                os.replace(old, new)
+                notes.append(f"{os.path.basename(old)} → {os.path.basename(new)}")
+            except OSError as e:
+                notes.append(f"failed to rename {os.path.basename(old)}: {e}")
+    return notes
 
 
 def _migrate_dir(src_dir: str, dest_for) -> list[str]:
@@ -40,19 +68,19 @@ def _migrate_dir(src_dir: str, dest_for) -> list[str]:
 
 
 def ensure_storage() -> list[str]:
-    """Create the storage subdirectories and migrate legacy dirs. Returns a list of what was done."""
+    """Create the storage subdirectories, migrate legacy dirs and file names. Returns a list of what was done."""
     for d in (LOGS_DIR, LOCKS_DIR, STATE_DIR, UPLOADS_DIR):
         os.makedirs(d, exist_ok=True)
     notes = []
     # config.py and the daemon used to resolve different base dirs, so check both
-    for base in {TELECLAW_DIR, _TELECLAW_DIR}:
+    for base in {TG_CLAW_DIR, _TG_CLAW_DIR}:
         legacy_logs = os.path.join(base, "logs")
         if os.path.isdir(legacy_logs) and legacy_logs != LOGS_DIR:
             notes += _migrate_dir(legacy_logs, lambda n: _LEGACY_LOGS_MAP.get(n, LOGS_DIR))
         legacy_data = os.path.join(base, "data")
         if os.path.isdir(legacy_data) and legacy_data != STATE_DIR:
             notes += _migrate_dir(legacy_data, lambda n: STATE_DIR)
-    return notes
+    return notes + _rename_legacy_names()
 
 
 def prune_uploads() -> int:

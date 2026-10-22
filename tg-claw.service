@@ -1,11 +1,11 @@
 [Unit]
-Description=TeleClaw - Telegram remote control for Claude Code
+Description=tg-claw - Telegram remote control for Claude Code
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/teleclaw
+ExecStart=%h/.local/bin/tg-claw
 WorkingDirectory=%h
 Restart=on-failure
 RestartSec=10
@@ -14,7 +14,7 @@ Environment=PYTHONUNBUFFERED=1
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=teleclaw
+SyslogIdentifier=tg-claw
 
 [Install]
 WantedBy=default.target

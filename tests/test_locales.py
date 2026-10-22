@@ -51,7 +51,7 @@ def test_values_non_empty_strings(lang):
 
 @pytest.mark.parametrize("lang", available_langs())
 def test_stuck_reason_keeps_marker(lang):
-    # teleclaw._restart_session checks `"STUCK" in reason`
+    # tg_claw._restart_session checks `"STUCK" in reason`
     assert "STUCK" in _load(lang)["reason_stuck"]
 
 

@@ -1,4 +1,4 @@
-"""TeleClaw command handlers"""
+"""tg-claw command handlers"""
 
 import asyncio
 import json
@@ -15,16 +15,16 @@ from .messages import msg
 from . import state_db as db
 
 
-def _spawn(teleclaw, coro):
+def _spawn(tg_claw, coro):
     """Schedule a coroutine from either the event loop or a worker thread.
 
     Command handlers run via asyncio.to_thread, where asyncio.create_task
-    has no running loop, so hand the coroutine to TeleClaw's main loop.
+    has no running loop, so hand the coroutine to tg-claw's main loop.
     """
     try:
         return asyncio.get_running_loop().create_task(coro)
     except RuntimeError:
-        return asyncio.run_coroutine_threadsafe(coro, teleclaw._loop)
+        return asyncio.run_coroutine_threadsafe(coro, tg_claw._loop)
 
 
 async def _do_interrupt(state, name: str, channel):
@@ -122,7 +122,7 @@ def _get_usage(http_client) -> str:
     return text
 
 
-def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
+def handle_command(tg_claw, text: str, bot_token: str, channel) -> bool:
     """Called when a Telegram message starts with /. Returns True if handled.
 
     Supported: /status, /esc, /pause, /restart, /reset, /log, /usage, /sys, /ask, /help
@@ -141,11 +141,11 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
 
     if cmd in ("/status", "/s"):
         now = time.time()
-        uptime = int(now - teleclaw._start_time)
+        uptime = int(now - tg_claw._start_time)
         h, m = uptime // 3600, (uptime % 3600) // 60
         lines = [msg("status_header", h=h, m=m)]
-        for name, state in teleclaw.sessions.items():
-            status = teleclaw._assess_health(state)
+        for name, state in tg_claw.sessions.items():
+            status = tg_claw._assess_health(state)
             lines.append(
                 f"  {name}: {status} | Q={state.query_count} E={state.error_count} R={state.restart_count}"
             )
@@ -159,18 +159,18 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             name = parts[0]
             no_resume = "noresume" in parts[1:]
         else:
-            name = _find_session_by_token(teleclaw.sessions, bot_token)
-        if name and name.lower() == "teleclaw":
+            name = _find_session_by_token(tg_claw.sessions, bot_token)
+        if name and name.lower() == "tg-claw":
             channel.send_sync(msg("sv_restart_requested"))
-            db.push_command("teleclaw", "restart", "force")
+            db.push_command("tg-claw", "restart", "force")
             return True
-        if name and name in teleclaw.sessions:
+        if name and name in tg_claw.sessions:
             db.set_paused(name, False)
-            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], msg("reason_restart_cmd"), mode="resume", force=True, no_resume=no_resume))
+            _spawn(tg_claw, tg_claw._restart_session(tg_claw.sessions[name], msg("reason_restart_cmd"), mode="resume", force=True, no_resume=no_resume))
             tag = " (noresume)" if no_resume else ""
             channel.send_sync(msg("restart_requested", name=name, tag=tag))
         elif name:
-            channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions) + ", teleclaw"))
+            channel.send_sync(msg("session_not_found", name=name, available=", ".join(tg_claw.sessions) + ", tg-claw"))
         return True
 
 
@@ -178,52 +178,52 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         if arg:
             name = arg
         else:
-            name = _find_session_by_token(teleclaw.sessions, bot_token)
-        if name and name in teleclaw.sessions:
+            name = _find_session_by_token(tg_claw.sessions, bot_token)
+        if name and name in tg_claw.sessions:
             if db.is_paused(name):
                 channel.send_sync(msg("already_paused", name=name))
                 return True
             db.set_paused(name, True)
             # Disconnect the session
-            state = teleclaw.sessions[name]
+            state = tg_claw.sessions[name]
             old_client = state.client
             state.client = None
             if old_client:
-                _spawn(teleclaw, teleclaw._safe_disconnect(old_client, name))
+                _spawn(tg_claw, tg_claw._safe_disconnect(old_client, name))
             state.connected = False
             state.busy = False
             log(f"{name}: paused (/pause command)")
             channel.send_sync(msg("paused", name=name))
         elif name:
-            channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
+            channel.send_sync(msg("session_not_found", name=name, available=", ".join(tg_claw.sessions)))
         return True
 
     if cmd in ("/esc", "/interrupt"):
         if arg:
             name = arg
         else:
-            name = _find_session_by_token(teleclaw.sessions, bot_token)
-        if name and name in teleclaw.sessions:
-            state = teleclaw.sessions[name]
+            name = _find_session_by_token(tg_claw.sessions, bot_token)
+        if name and name in tg_claw.sessions:
+            state = tg_claw.sessions[name]
             if state.connected and state.client:
-                _spawn(teleclaw, _do_interrupt(state, name, channel))
+                _spawn(tg_claw, _do_interrupt(state, name, channel))
             else:
                 channel.send_sync(msg("session_not_connected", name=name))
         elif name:
-            channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
+            channel.send_sync(msg("session_not_found", name=name, available=", ".join(tg_claw.sessions)))
         return True
 
     if cmd == "/reset":
         if arg:
             name = arg
         else:
-            name = _find_session_by_token(teleclaw.sessions, bot_token)
-        if name and name in teleclaw.sessions:
+            name = _find_session_by_token(tg_claw.sessions, bot_token)
+        if name and name in tg_claw.sessions:
             db.set_paused(name, False)
-            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], msg("reason_reset_cmd"), mode="reset", force=True))
+            _spawn(tg_claw, tg_claw._restart_session(tg_claw.sessions[name], msg("reason_reset_cmd"), mode="reset", force=True))
             channel.send_sync(msg("reset_requested", name=name))
         elif name:
-            channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
+            channel.send_sync(msg("session_not_found", name=name, available=", ".join(tg_claw.sessions)))
         return True
 
     if cmd in ("/log", "/l"):
@@ -242,7 +242,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         return True
 
     if cmd in ("/usage", "/u"):
-        usage_text = _get_usage(teleclaw._http)
+        usage_text = _get_usage(tg_claw._http)
         channel.send_sync(usage_text)
         return True
 
@@ -254,7 +254,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
                 log_lines = f.readlines()
         except Exception:
             log_lines = []
-        for name, state in teleclaw.sessions.items():
+        for name, state in tg_claw.sessions.items():
             usage_data = None
             for line in reversed(log_lines):
                 if f"{name}: [usage]" in line:
@@ -317,10 +317,10 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
                     lines.append(f"  {pname}(PID:{pid}) {mem_mb:.0f}MB CPU:{cpu_p:.0f}%")
             else:
                 lines.append(msg("sys_no_procs"))
-            # TeleClaw self
+            # tg-claw self
             sv_proc = psutil.Process()
             sv_mem = sv_proc.memory_info().rss / (1024**2)
-            lines.append(msg("sys_teleclaw", pid=sv_proc.pid, mem=sv_mem))
+            lines.append(msg("sys_tg_claw", pid=sv_proc.pid, mem=sv_mem))
         except ImportError:
             lines.append(msg("sys_no_psutil"))
         except Exception as e:
@@ -332,21 +332,21 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         if not arg:
             channel.send_sync(msg("ask_usage"))
             return True
-        _spawn(teleclaw, teleclaw._handle_ask(arg, bot_token))
+        _spawn(tg_claw, tg_claw._handle_ask(arg, bot_token))
         return True
 
     if cmd in ("/help", "/h"):
-        names = ", ".join(teleclaw.sessions.keys())
+        names = ", ".join(tg_claw.sessions.keys())
         channel.send_sync(msg("help_text", names=names))
         return True
 
     if cmd == "/mode":
         valid = ("minimal", "normal")
         if arg and arg in valid:
-            teleclaw.output_level = arg
+            tg_claw.output_level = arg
             channel.send_sync(msg("mode_set", mode=arg))
         else:
-            channel.send_sync(msg("mode_current", mode=teleclaw.output_level, options="/".join(valid)))
+            channel.send_sync(msg("mode_current", mode=tg_claw.output_level, options="/".join(valid)))
         return True
 
     return False

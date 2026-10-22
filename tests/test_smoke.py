@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TeleClaw full smoke test (#1-#45) — non-destructive checks.
+tg-claw full smoke test (#1-#45) — non-destructive checks.
 Run: python tests/test_smoke_all.py
 """
 
@@ -14,8 +14,8 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-TELECLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, TELECLAW_DIR)
+TG_CLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TG_CLAW_DIR)
 from src.config import (  # noqa: E402
     LOGS_DIR, STATE_DIR as DATA_DIR, STATUS_FILE, LOG_FILE, SESSION_IDS_FILE, LOCK_FILE,
     WRAPPER_LOG_FILE as WRAPPER_LOG,
@@ -53,19 +53,19 @@ def read_text(path):
 
 
 def read_code():
-    sv_path = os.path.join(TELECLAW_DIR, "src", "teleclaw.py")
+    sv_path = os.path.join(TG_CLAW_DIR, "src", "tg_claw.py")
     with open(sv_path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def read_wrapper_code():
-    wp_path = os.path.join(TELECLAW_DIR, "src", "teleclaw_daemon.py")
+    wp_path = os.path.join(TG_CLAW_DIR, "src", "tg_claw_daemon.py")
     with open(wp_path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def read_commands_code():
-    cmd_path = os.path.join(TELECLAW_DIR, "src", "commands.py")
+    cmd_path = os.path.join(TG_CLAW_DIR, "src", "commands.py")
     with open(cmd_path, "r", encoding="utf-8") as f:
         return f.read()
 
@@ -85,15 +85,15 @@ sessions = status["sessions"]
 # #1: Process state
 # ==========================================================
 print("\n#1: Process state")
-test("teleclaw_status.json exists", os.path.exists(STATUS_FILE))
+test("tg_claw_status.json exists", os.path.exists(STATUS_FILE))
 test("PID recorded", status.get("pid", 0) > 0, f"pid={status.get('pid')}")
 # Check the process with tasklist
 try:
     r = subprocess.run(["tasklist", "/FI", f"PID eq {status['pid']}", "/NH"],
                        capture_output=True, text=True, timeout=5)
-    test("teleclaw process exists", str(status["pid"]) in r.stdout)
+    test("tg-claw process exists", str(status["pid"]) in r.stdout)
 except Exception as e:
-    skip("teleclaw process exists", str(e))
+    skip("tg-claw process exists", str(e))
 test(f"{len(sessions)} sessions exist", len(sessions) >= 3, f"count={len(sessions)}")
 for name, s in sessions.items():
     test(f"{name} connected=true", s["connected"])
@@ -133,13 +133,13 @@ else:
     skip("restart history", "not in current log")
 
 # ==========================================================
-# #5: TeleClaw self-restart
+# #5: tg-claw self-restart
 # ==========================================================
-print("\n#5: TeleClaw self-restart")
+print("\n#5: tg-claw self-restart")
 test("restart_request_supervisor.flag detection", "restart_request_supervisor" in sv_code)
 test("os._exit(0) triggers wrapper restart", "os._exit(0)" in sv_code)
 # Restart history in the wrapper log
-wrapper_restarts = wrapper_log.count("teleclaw starting")
+wrapper_restarts = wrapper_log.count("tg-claw starting")
 test(f"wrapper restart history: {wrapper_restarts}", wrapper_restarts > 0)
 
 # ==========================================================
@@ -251,7 +251,7 @@ test("consecutive error count (error_count)", "state.error_count += 1" in sv_cod
 # #18: Message order preserved on retry
 # ==========================================================
 print("\n#18: Message order preserved on retry")
-session_code = read_text(os.path.join(TELECLAW_DIR, "src", "session.py"))
+session_code = read_text(os.path.join(TG_CLAW_DIR, "src", "session.py"))
 test("FIFO queue (asyncio.Queue)", "asyncio.Queue" in session_code)
 test("retry re-appends with put", "message_queue.put(msg_data)" in sv_code)
 
@@ -283,11 +283,11 @@ test("includes traceback", "traceback" in sv_code)
 print("\n#22: Parallel session connect")
 test("parallel connect with asyncio.gather", "asyncio.gather" in sv_code)
 test("return_exceptions=True", "return_exceptions=True" in sv_code)
-# Analyze connect times in the log — only connects after the last "TeleClaw starting"
+# Analyze connect times in the log — only connects after the last "tg-claw starting"
 lines = log_content.split("\n")
 last_start_idx = -1
 for i, l in enumerate(lines):
-    if "TeleClaw starting" in l:
+    if "tg-claw starting" in l:
         last_start_idx = i
 if last_start_idx >= 0:
     recent_lines = lines[last_start_idx:]
@@ -350,11 +350,11 @@ if disc_errors and disc_terminates:
 # ==========================================================
 print("\n#24: Wrapper crash stderr capture (file redirect)")
 test("main run doesn't use capture_output", "stderr=sf" in wp_code)
-test("stderr redirected to file", "teleclaw_stderr.log" in wp_code)
-test("stderr logged", "teleclaw stderr:" in wp_code)
+test("stderr redirected to file", "tg_claw_stderr.log" in wp_code)
+test("stderr logged", "tg-claw stderr:" in wp_code)
 test("stderr sent to Telegram", 'msg("daemon_crash_stderr"' in wp_code)
 # Check actual stderr captures in the wrapper log
-stderr_logs = [l for l in wrapper_log.split("\n") if "teleclaw stderr:" in l]
+stderr_logs = [l for l in wrapper_log.split("\n") if "tg-claw stderr:" in l]
 test(f"wrapper stderr captures: {len(stderr_logs)}", True)
 if stderr_logs:
     print(f"    latest: {stderr_logs[-1].strip()[:100]}")
@@ -365,14 +365,14 @@ if stderr_logs:
 print("\n#46: Prevent wrapper restart blocking")
 test("stderr redirected to file (stdout not captured)", "stderr=sf" in wp_code)
 test("main run stdout not captured (prevents blocking)", "stderr=sf" in wp_code)
-# Check restart latency in the wrapper log — time from "teleclaw exited" to "teleclaw starting"
+# Check restart latency in the wrapper log — time from "tg-claw exited" to "tg-claw starting"
 wp_lines = wrapper_log.split("\n")
 restart_pairs = []
 for i, l in enumerate(wp_lines):
-    if "teleclaw exited" in l and "exit_code=0" in l:
-        # find the next "teleclaw starting"
+    if "tg-claw exited" in l and "exit_code=0" in l:
+        # find the next "tg-claw starting"
         for j in range(i+1, min(i+5, len(wp_lines))):
-            if "teleclaw starting" in wp_lines[j]:
+            if "tg-claw starting" in wp_lines[j]:
                 try:
                     t1 = wp_lines[i].split("]")[0].lstrip("[").strip()
                     t2 = wp_lines[j].split("]")[0].lstrip("[").strip()
@@ -394,8 +394,8 @@ else:
 # #51: auto-resume ON/OFF control
 # ==========================================================
 print("\n#51: auto-resume ON/OFF control")
-cfg_code = read_text(os.path.join(TELECLAW_DIR, "src", "config.py"))
-cmd_code = read_text(os.path.join(TELECLAW_DIR, "src", "commands.py"))
+cfg_code = read_text(os.path.join(TG_CLAW_DIR, "src", "config.py"))
+cmd_code = read_text(os.path.join(TG_CLAW_DIR, "src", "commands.py"))
 test("global setting AUTO_RESUME_ENABLED", "AUTO_RESUME_ENABLED" in cfg_code)
 test("imported in supervisor", "AUTO_RESUME_ENABLED" in sv_code)
 test("noresume parameter", "no_resume" in sv_code)
@@ -489,13 +489,13 @@ test("sends Telegram warning", 'msg("daemon_frequent_restart"' in wp_code)
 # #56: Log rotation (per-day archives)
 # ==========================================================
 print("\n#56: Log rotation")
-log_utils = read_text(os.path.join(TELECLAW_DIR, "src", "logging_utils.py"))
+log_utils = read_text(os.path.join(TG_CLAW_DIR, "src", "logging_utils.py"))
 test("_archive_lines function", "_archive_lines" in log_utils)
-test("per-day file name", 'teleclaw_{date_str}.log' in log_utils or "teleclaw_" in log_utils)
+test("per-day file name", 'tg_claw_{date_str}.log' in log_utils or "tg_claw_" in log_utils)
 test("trimmed log archived", "_archive_lines(lines[:-500])" in log_utils)
 # Check that archive files exist
 import glob
-archive_files = glob.glob(os.path.join(LOGS_DIR, "teleclaw_20*.log"))
+archive_files = glob.glob(os.path.join(LOGS_DIR, "tg_claw_20*.log"))
 if archive_files:
     test(f"{len(archive_files)} archive files", True)
     print(f"    latest: {os.path.basename(archive_files[-1])}")
@@ -513,7 +513,7 @@ test("json= parameter", 'json={"chat_id"' in sv_code or 'json={' in sv_code)
 # #48: async _notify_all
 # ==========================================================
 print("\n#48: async _notify_all")
-tg_code = read_text(os.path.join(TELECLAW_DIR, "src", "telegram_api.py"))
+tg_code = read_text(os.path.join(TG_CLAW_DIR, "src", "telegram_api.py"))
 test("async_notify_all function exists", "async def async_notify_all" in tg_code)
 test("async_notify_all imported", "async_notify_all" in sv_code)
 test("async call inside loops", "await async_notify_all" in sv_code)

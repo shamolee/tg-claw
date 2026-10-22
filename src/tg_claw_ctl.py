@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""TeleClaw CLI — command tool usable from both Telegram and the console.
+"""tg-claw CLI — command tool usable from both Telegram and the console.
 
 Usage:
-  python -m src.teleclaw_ctl s              # status
-  python -m src.teleclaw_ctl r [name]       # restart
-  python -m src.teleclaw_ctl x [name]       # reset
-  python -m src.teleclaw_ctl p <name>       # pause
-  python -m src.teleclaw_ctl l [N]          # logs
-  python -m src.teleclaw_ctl u              # usage
-  python -m src.teleclaw_ctl h              # help
+  python -m src.tg_claw_ctl s              # status
+  python -m src.tg_claw_ctl r [name]       # restart
+  python -m src.tg_claw_ctl x [name]       # reset
+  python -m src.tg_claw_ctl p <name>       # pause
+  python -m src.tg_claw_ctl l [N]          # logs
+  python -m src.tg_claw_ctl u              # usage
+  python -m src.tg_claw_ctl h              # help
 """
 
 import json
@@ -56,15 +56,15 @@ def _resolve_name(arg):
             return None
         return name
     # case-insensitive match
-    for n in SESSION_NAMES + ["teleclaw"]:
+    for n in SESSION_NAMES + ["tg-claw"]:
         if n.lower() == arg.lower():
             return n
-    print(msg("tcctl_session_not_found", name=arg, available=", ".join(SESSION_NAMES) + ", teleclaw"))
+    print(msg("tcctl_session_not_found", name=arg, available=", ".join(SESSION_NAMES) + ", tg-claw"))
     return None
 
 
 def _get_all_processes():
-    """List claude.exe plus all teleclaw-related python processes.
+    """List claude.exe plus all tg-claw-related python processes.
 
     Returns:
         {"sessions": {name: {pid, mem_mb}},
@@ -72,7 +72,10 @@ def _get_all_processes():
          "infra": [{pid, mem_mb, label}]}
     """
     import re as _re
-    # Find claude + teleclaw-related processes (cross-platform)
+    # Our python processes: the wrapper (-m src.tg_claw_daemon) and the app it spawns (-m src).
+    # Matched by launch arguments, not by folder name, so moving/renaming the checkout doesn't break it.
+    is_ours = lambda cmd: "tg_claw_daemon" in cmd or _re.search(r"-m src(\s|$)", cmd)
+    # Find claude + tg-claw-related processes (cross-platform)
     try:
         import psutil
         lines = []
@@ -82,7 +85,7 @@ def _get_all_processes():
                 pname = (info["name"] or "").lower()
                 cmdline = " ".join(info["cmdline"] or [])
                 mem = info["memory_info"].rss if info["memory_info"] else 0
-                if "claude" in pname or ("python" in pname and "teleclaw" in cmdline):
+                if "claude" in pname or ("python" in pname and is_ours(cmdline)):
                     lines.append(f"{info['pid']}|{info['name']}|{mem}|{cmdline[:200]}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
@@ -92,7 +95,7 @@ def _get_all_processes():
             ps_cmd = (
                 "Get-CimInstance Win32_Process | "
                 "Where-Object { $_.Name -eq 'claude.exe' -or "
-                "($_.Name -eq 'python.exe' -and $_.CommandLine -match 'teleclaw') } | "
+                "($_.Name -eq 'python.exe' -and $_.CommandLine -match 'tg_claw_daemon|-m src(\\s|$)') } | "
                 "ForEach-Object { "
                 "$mem = (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).WorkingSet64; "
                 "Write-Output ('{0}|{1}|{2}|{3}' -f $_.ProcessId, $_.Name, $mem, "
@@ -135,12 +138,12 @@ def _get_all_processes():
         mem_mb = round(int(parts[2] or 0) / 1024 / 1024)
         cmdline = parts[3]
 
-        # python teleclaw processes
+        # python tg-claw processes
         if "python" in proc_name.lower():
-            if "teleclaw_daemon" in cmdline or "teleclaw-wrapper" in cmdline:
+            if "tg_claw_daemon" in cmdline:
                 infra.append({"pid": pid, "mem_mb": mem_mb, "label": "daemon"})
-            elif "teleclaw" in cmdline:
-                infra.append({"pid": pid, "mem_mb": mem_mb, "label": "teleclaw"})
+            elif is_ours(cmdline):
+                infra.append({"pid": pid, "mem_mb": mem_mb, "label": "tg-claw"})
             continue
 
         # claude.exe — map to sessions
@@ -184,7 +187,7 @@ def cmd_ps():
     all_procs = _get_all_processes()
     tc_data = {}
 
-    # TeleClaw status
+    # tg-claw status
     if STATUS_FILE.exists():
         tc_data = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
         ts = tc_data.get("ts", 0)
@@ -199,7 +202,7 @@ def cmd_ps():
     else:
         print(msg("tcctl_sv_not_running"))
 
-    # Infrastructure processes (wrapper, teleclaw python)
+    # Infrastructure processes (wrapper, tg-claw python)
     for p in all_procs["infra"]:
         print(f"  {p['label']}: PID={p['pid']} {p['mem_mb']}MB")
 
@@ -236,8 +239,8 @@ def cmd_restart(arg, mode="resume"):
     parts = ["force"]
     if mode != "resume":
         parts.append(mode)
-    db.push_command(name.lower() if name.lower() == "teleclaw" else name, "restart", ",".join(parts))
-    if name.lower() == "teleclaw":
+    db.push_command(name.lower() if name.lower() == "tg-claw" else name, "restart", ",".join(parts))
+    if name.lower() == "tg-claw":
         print(msg("tcctl_restart_sv"))
     else:
         mode_str = f" ({mode})" if mode != "resume" else ""
@@ -246,9 +249,9 @@ def cmd_restart(arg, mode="resume"):
 
 
 def cmd_pause(arg):
-    """Pause a session — mark it in the DB + kill its process. TeleClaw won't restart it."""
+    """Pause a session — mark it in the DB + kill its process. tg-claw won't restart it."""
     name = _resolve_name(arg)
-    if not name or name.lower() == "teleclaw":
+    if not name or name.lower() == "tg-claw":
         print(msg("tcctl_specify_session_no_sv"))
         return
     db.set_paused(name, True)
@@ -387,7 +390,7 @@ def cmd_ctx():
 def cmd_help():
     print(msg("tcctl_help"))
     print()
-    print(f"  {', '.join(SESSION_NAMES)}, teleclaw")
+    print(f"  {', '.join(SESSION_NAMES)}, tg-claw")
 
 
 def main():
@@ -405,7 +408,7 @@ def main():
         "sys": cmd_sys, "system": cmd_sys,
         "ps": cmd_ps, "s": cmd_ps, "status": cmd_ps,
         "r": lambda: cmd_restart(arg), "restart": lambda: cmd_restart(arg),
-        "tc": lambda: cmd_restart("teleclaw"), "teleclaw": lambda: cmd_restart("teleclaw"),
+        "tc": lambda: cmd_restart("tg-claw"), "tg-claw": lambda: cmd_restart("tg-claw"),
         "reset": lambda: cmd_restart(arg, "reset"),
         "p": lambda: cmd_pause(arg), "pause": lambda: cmd_pause(arg),
         "c": cmd_ctx, "ctx": cmd_ctx,

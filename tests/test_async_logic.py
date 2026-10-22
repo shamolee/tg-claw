@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TeleClaw async business logic tests.
+"""tg-claw async business logic tests.
 
 Covers:
   1. _restart_session — core recovery logic
@@ -23,13 +23,13 @@ from src import state_db as db
 
 
 # ============================================================
-# Helpers: TeleClaw instance + SessionState factory
+# Helpers: tg-claw instance + SessionState factory
 # ============================================================
 
-def _make_teleclaw():
-    """Create a TeleClaw instance without external dependencies."""
-    from src.teleclaw import TeleClaw
-    tc = TeleClaw()
+def _make_tg_claw():
+    """Create a tg-claw instance without external dependencies."""
+    from src.tg_claw import TgClaw
+    tc = TgClaw()
     tc._shutdown = False
     tc._fresh_start = False
     return tc
@@ -69,7 +69,7 @@ class TestRestartSession(unittest.TestCase):
     """Tests for _restart_session core recovery logic."""
 
     def setUp(self):
-        self.tc = _make_teleclaw()
+        self.tc = _make_tg_claw()
         self.tc._broadcast_sync = MagicMock()
         self.tc._write_status = MagicMock()
         self.tc._connect_session = AsyncMock()
@@ -196,7 +196,7 @@ class TestAssessHealthExtended(unittest.TestCase):
     """Extra _assess_health tests — complements test_unit.py."""
 
     def setUp(self):
-        self.tc = _make_teleclaw()
+        self.tc = _make_tg_claw()
 
     def test_recently_started_busy_not_stuck(self):
         """Right after start (within HEALTH_CHECK_INTERVAL), busy is OK, not STUCK."""
@@ -480,7 +480,7 @@ class TestStateDB(unittest.TestCase):
         conn = db._get_conn()
         conn.execute("DELETE FROM commands")
         conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM teleclaw_state")
+        conn.execute("DELETE FROM tg_claw_state")
         conn.execute("DELETE FROM poll_offsets")
         conn.execute("DELETE FROM relay_config")
         conn.commit()
@@ -656,7 +656,7 @@ class TestHandleCommand(unittest.TestCase):
         db.init(":memory:")
 
     def setUp(self):
-        self.tc = _make_teleclaw()
+        self.tc = _make_tg_claw()
         self.channel = MagicMock()
         self.channel.send_sync = MagicMock(return_value="1")
 
@@ -778,7 +778,7 @@ class TestHandleCommandShortcuts(unittest.TestCase):
         db.init(":memory:")
 
     def setUp(self):
-        self.tc = _make_teleclaw()
+        self.tc = _make_tg_claw()
         self.channel = MagicMock()
         self.channel.send_sync = MagicMock(return_value="1")
         state = _make_state(name="S1")
@@ -825,7 +825,7 @@ class TestShouldAutoResumeExtended(unittest.TestCase):
     """_should_auto_resume extra cases."""
 
     def setUp(self):
-        self.tc = _make_teleclaw()
+        self.tc = _make_tg_claw()
 
     def test_resume_count_exactly_2_rejected(self):
         """resume_count == 2 → denied."""

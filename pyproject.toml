@@ -3,16 +3,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "teleclaw"
+name = "tg-claw"
 version = "0.1.0"
 description = "Telegram-based remote control for Claude Code sessions"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "gbongk" },
+    { name = "Shamo Humbatli" },
+    { name = "gbongk" },  # original TeleClaw author
 ]
-keywords = ["claude-code", "telegram", "agent", "teleclaw"]
+keywords = ["claude-code", "telegram", "agent", "tg-claw"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
@@ -28,12 +29,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gbongk/teleclaw"
-Repository = "https://github.com/gbongk/teleclaw"
-Issues = "https://github.com/gbongk/teleclaw/issues"
+Homepage = "https://github.com/shamolee/tg-claw"
+Repository = "https://github.com/shamolee/tg-claw"
+Issues = "https://github.com/shamolee/tg-claw/issues"
 
 [project.scripts]
-teleclaw = "src:main"
+tg-claw = "src:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]

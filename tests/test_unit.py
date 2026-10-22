@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TeleClaw unit tests — isolated pure-function tests."""
+"""tg-claw unit tests — isolated pure-function tests."""
 
 import sys
 import os
@@ -194,14 +194,14 @@ class TestSplitMessage(unittest.TestCase):
 
 
 # ============================================================
-# teleclaw.py function tests
+# tg_claw.py function tests
 # ============================================================
 
 class TestToolSummary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from src.teleclaw import TeleClaw
-        cls.func = staticmethod(TeleClaw._tool_summary)
+        from src.tg_claw import TgClaw
+        cls.func = staticmethod(TgClaw._tool_summary)
 
     def test_read_file(self):
         result = self.func("Read", {"file_path": "/some/path/file.py"})
@@ -230,8 +230,8 @@ class TestToolSummary(unittest.TestCase):
 class TestFormatToolLine(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from src.teleclaw import TeleClaw
-        cls.func = staticmethod(TeleClaw._format_tool_line)
+        from src.tg_claw import TgClaw
+        cls.func = staticmethod(TgClaw._format_tool_line)
 
     def test_single(self):
         result = self.func(["🔧 Read: a.py"])
@@ -313,8 +313,8 @@ class TestFormatToolLine(unittest.TestCase):
 class TestStabilizeMarkdown(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from src.teleclaw import TeleClaw
-        cls.func = staticmethod(TeleClaw._stabilize_markdown)
+        from src.tg_claw import TgClaw
+        cls.func = staticmethod(TgClaw._stabilize_markdown)
 
     def test_open_code_block(self):
         result = self.func("```\ncode")
@@ -332,9 +332,9 @@ class TestStabilizeMarkdown(unittest.TestCase):
 class TestAssessHealth(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from src.teleclaw import TeleClaw
+        from src.tg_claw import TgClaw
         from src.session import SessionState
-        cls.supervisor = TeleClaw()
+        cls.supervisor = TgClaw()
         cls.SessionState = SessionState
 
     def _make_state(self, **kwargs):
@@ -395,7 +395,7 @@ class TestHandleEmergencyCommand(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from src import teleclaw_daemon as mod
+        from src import tg_claw_daemon as mod
         mod.tg_send = lambda text: None
         cls._func = staticmethod(mod.handle_emergency_command)
 
@@ -459,15 +459,15 @@ class TestCommandsPauseRelease(unittest.TestCase):
 
 
 # ============================================================
-# teleclaw.py — _should_auto_resume decision logic
+# tg_claw.py — _should_auto_resume decision logic
 # ============================================================
 
 class TestShouldAutoResume(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from src.teleclaw import TeleClaw
+        from src.tg_claw import TgClaw
         from src.session import SessionState
-        cls.supervisor = TeleClaw()
+        cls.supervisor = TgClaw()
         cls.SessionState = SessionState
 
     def _make_state(self, **kwargs):
@@ -518,7 +518,7 @@ class TestShouldAutoResume(unittest.TestCase):
 
 
 # ============================================================
-# teleclaw.py — skip errors while restarting
+# tg_claw.py — skip errors while restarting
 # ============================================================
 
 class TestRestartingErrorSkip(unittest.TestCase):
@@ -528,7 +528,7 @@ class TestRestartingErrorSkip(unittest.TestCase):
         """Error while restarting does not increment retry_error."""
         msg_data = {"text": "리셋", "retry_error": 0}
         state_restarting = True
-        # Simulate teleclaw.py logic
+        # Simulate tg_claw.py logic
         if state_restarting:
             skipped = True
         else:

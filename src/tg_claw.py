@@ -1,5 +1,5 @@
 """
-TeleClaw — Telegram bot built on the Claude Code SDK
+tg-claw — Telegram bot built on the Claude Code SDK
 Receive Telegram message → SDK query → response → send to Telegram.
 Integrates health checks, restarts, state management and a watchdog.
 """
@@ -36,14 +36,14 @@ def _patched_parse(data):
 _mp.parse_message = _patched_parse
 
 from .config import (
-    PROJECTS, CHAT_ID, ALLOWED_USERS, TELECLAW_DIR, LOG_FILE,
+    PROJECTS, CHAT_ID, ALLOWED_USERS, TG_CLAW_DIR, LOG_FILE,
     STATUS_FILE, SESSION_IDS_FILE, STATE_DIR, UPLOADS_DIR,
     HEALTH_CHECK_INTERVAL, STUCK_THRESHOLD,
     MAX_RESTARTS_PER_WINDOW, RESTART_WINDOW,
     AUTO_RESUME_ENABLED, AUTO_RESUME_MODE, AUTO_RESUME_PROMPTS,
     ICON_THINKING, ICON_DONE, OUTPUT_LEVEL, LANG,
 )
-from .logging_utils import log, _find_existing_teleclaw, _write_lock, _release_lock
+from .logging_utils import log, _find_existing_tg_claw, _write_lock, _release_lock
 from .storage import ensure_storage, prune_uploads
 from .channel_telegram import TelegramChannel
 from .session import SessionState
@@ -53,7 +53,7 @@ from .telegram_api import register_bot_commands
 from . import state_db as db
 
 
-class TeleClaw:
+class TgClaw:
     def __init__(self):
         self.sessions: dict[str, SessionState] = {}
         self._shutdown = False
@@ -65,11 +65,11 @@ class TeleClaw:
         self._last_msg_map: dict[str, float] = {}  # for duplicate message removal
         self._ask_client: ClaudeSDKClient | None = None
         self._ask_busy = False
-        self._fresh_start = True  # right after the TeleClaw process starts (vs. a single session restart)
+        self._fresh_start = True  # right after the tg-claw process starts (vs. a single session restart)
         self.output_level = OUTPUT_LEVEL  # minimal / normal (switchable at runtime via /mode)
 
     async def start(self):
-        log("TeleClaw starting")
+        log("tg-claw starting")
         db.init()
         # Initialize sessions
         for name, config in PROJECTS.items():
@@ -134,7 +134,7 @@ class TeleClaw:
         await self._broadcast(msg("sv_init_done", elapsed=elapsed, names=', '.join(connected)))
         log("All loops started")
 
-        # No auto-resume when TeleClaw itself starts
+        # No auto-resume when tg-claw itself starts
         # (sessions may still be unstable, and was_busy_before_restart is not set)
         self._fresh_start = False
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -227,7 +227,7 @@ class TeleClaw:
         try:
             options = ClaudeCodeOptions(
                 permission_mode="bypassPermissions",
-                cwd=TELECLAW_DIR,
+                cwd=TG_CLAW_DIR,
                 max_turns=5,
             )
             self._ask_client = ClaudeSDKClient(options)
@@ -345,7 +345,7 @@ class TeleClaw:
                 state.channel.send_sync(msg("restart_done", name=state.name), notify=True)
 
                 # auto-resume: only on individual session restarts
-                # skipped for reset(new) or initial TeleClaw start (handled in check mode in start())
+                # skipped for reset(new) or initial tg-claw start (handled in check mode in start())
                 if mode != "new" and not self._fresh_start and AUTO_RESUME_ENABLED and not no_resume and state.message_queue.empty():
                     # individual session restart → use the configured mode (resume/check)
                     effective_mode = AUTO_RESUME_MODE
@@ -370,8 +370,8 @@ class TeleClaw:
             try:
                 await asyncio.sleep(1)
 
-                # Check for a teleclaw self-restart (DB)
-                sv_cmd = db.pop_command("teleclaw")
+                # Check for a tg-claw self-restart (DB)
+                sv_cmd = db.pop_command("tg-claw")
                 if sv_cmd:
                     mode = "resume"
                     force = False
@@ -382,14 +382,14 @@ class TeleClaw:
                     cooldown = 300  # 5 min
                     elapsed = time.time() - self._start_time
                     if not force and elapsed < cooldown:
-                        log(f"ignoring teleclaw self-restart flag (cooldown: {int(cooldown - elapsed)}s left)")
+                        log(f"ignoring tg-claw self-restart flag (cooldown: {int(cooldown - elapsed)}s left)")
                     else:
                         # mark busy sessions no_resume (prevents auto-resume loops)
                         self._save_session_ids(no_resume_if_busy=True)
                         # if any session is busy, wait for it to finish (up to 60s)
                         busy_sessions = [n for n, s in self.sessions.items() if s.busy]
                         if busy_sessions and not force:
-                            log(f"teleclaw self-restart flag detected — waiting for busy sessions: {', '.join(busy_sessions)}")
+                            log(f"tg-claw self-restart flag detected — waiting for busy sessions: {', '.join(busy_sessions)}")
                             waited = 0
                             while waited < 60:
                                 await asyncio.sleep(2)
@@ -399,7 +399,7 @@ class TeleClaw:
                                     break
                             if busy_sessions:
                                 log(f"graceful wait exceeded 60s, forcing exit (busy: {', '.join(busy_sessions)})")
-                        log(f"teleclaw self-restart flag detected (mode={mode}, force={force}) → exiting process")
+                        log(f"tg-claw self-restart flag detected (mode={mode}, force={force}) → exiting process")
                         await self._broadcast(msg("sv_self_restart", mode=mode))
                         self._shutdown = True
                         os._exit(0)  # the wrapper restarts it automatically
@@ -506,7 +506,7 @@ class TeleClaw:
 
     def _save_session_ids(self, no_resume_if_busy=False):
         """Save session_id + busy state to a file (restored after restart).
-        no_resume_if_busy=True: on a TeleClaw self-restart, mark busy sessions no_resume."""
+        no_resume_if_busy=True: on a tg-claw self-restart, mark busy sessions no_resume."""
         data = {}
         for name, state in self.sessions.items():
             entry = {}
@@ -594,7 +594,7 @@ class TeleClaw:
         t.start()
 
     def _handle_command(self, text: str, bot_token: str) -> bool:
-        """Handle a TeleClaw command. Returns True if handled."""
+        """Handle a tg-claw command. Returns True if handled."""
         ch = self._channel_by_token(bot_token)
         return handle_command(self, text, bot_token, ch)
 
@@ -712,7 +712,7 @@ class TeleClaw:
 
     def _should_auto_resume(self, state: SessionState) -> bool:
         """Decide whether to auto-resume."""
-        # no_resume mark (session was busy during a TeleClaw/flag restart → prevents loops)
+        # no_resume mark (session was busy during a tg-claw/flag restart → prevents loops)
         if state.no_resume_before_restart:
             log(f"{state.name}: no_resume mark → skipping auto-resume (prevents loop)")
             state.no_resume_before_restart = False
@@ -735,7 +735,7 @@ class TeleClaw:
 
     async def _session_loop(self, state: SessionState):
         # auto-resume is only handled on individual session restarts (_restart_session)
-        # on initial TeleClaw start, just wait
+        # on initial tg-claw start, just wait
         log(f"{state.name}: session loop started — waiting")
         _idle_count = 0
 
@@ -1327,21 +1327,21 @@ class TeleClaw:
             state.connected = False
         self._write_status()
         _release_lock()
-        log("TeleClaw stopped")
+        log("tg-claw stopped")
 
 
 async def main():
     for note in ensure_storage():
         log(f"storage migration: {note}")
 
-    existing_pid = _find_existing_teleclaw()
+    existing_pid = _find_existing_tg_claw()
     if existing_pid:
-        log(f"TeleClaw already running (PID={existing_pid}), exiting")
-        print(f"TeleClaw is already running (PID={existing_pid}).")
+        log(f"tg-claw already running (PID={existing_pid}), exiting")
+        print(f"tg-claw is already running (PID={existing_pid}).")
         sys.exit(42)  # the wrapper recognizes this code as 'already running'
 
     _write_lock()
-    hub = TeleClaw()
+    hub = TgClaw()
     hub._start_watchdog_thread()
 
     def on_signal(sig, frame):

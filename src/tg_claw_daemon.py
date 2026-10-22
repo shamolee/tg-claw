@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TeleClaw wrapper — runs the teleclaw package with auto-restart + death-loop protection.
+tg-claw wrapper — runs the tg-claw package with auto-restart + death-loop protection.
 
 - Survived under 30s = treated as a code error
 - Exponential backoff: 3s → 30s → 5min → 30min (max)
@@ -22,7 +22,7 @@ if sys.platform == "win32":
 
 PYTHON = sys.executable
 from .config import (
-    PROJECTS, CHAT_ID, ALLOWED_USERS, _TELECLAW_DIR,
+    PROJECTS, CHAT_ID, ALLOWED_USERS, _TG_CLAW_DIR,
     WRAPPER_LOG_FILE as LOG_FILE, LOG_FILE as SV_LOG_FILE,
     WRAPPER_LOCK_FILE as LOCK_FILE, STDERR_LOG_FILE,
 )
@@ -111,7 +111,7 @@ def handle_emergency_command(text: str, fail_count: int, wait: int, start_time: 
 
     if cmd in ("/log", "/logs", "로그"):
         lines = []
-        for path, label in [(LOG_FILE, "wrapper"), (SV_LOG_FILE, "teleclaw")]:
+        for path, label in [(LOG_FILE, "wrapper"), (SV_LOG_FILE, "tg-claw")]:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     tail = f.readlines()[-10:]
@@ -310,22 +310,22 @@ def main():
     log("Wrapper started")
 
     while True:
-        log(f"teleclaw starting (fail_count={fail_count})")
+        log(f"tg-claw starting (fail_count={fail_count})")
         sv_start = time.time()
 
         # Capture only stderr to a file (capture_output makes the child process block)
-        # Show stdout only on a console. As a service it duplicates teleclaw.log, so discard it
+        # Show stdout only on a console. As a service it duplicates tg_claw.log, so discard it
         with open(STDERR_LOG_FILE, "w", encoding="utf-8") as sf:
             proc = subprocess.run(
                 [PYTHON, "-m", "src"],
-                cwd=_TELECLAW_DIR,
+                cwd=_TG_CLAW_DIR,
                 stdout=None if sys.stdout.isatty() else subprocess.DEVNULL,
                 stderr=sf,
             )
 
         elapsed = time.time() - sv_start
         exit_code = proc.returncode
-        log(f"teleclaw exited (exit_code={exit_code}, alive={elapsed:.0f}s)")
+        log(f"tg-claw exited (exit_code={exit_code}, alive={elapsed:.0f}s)")
 
         # Warn on frequent restarts (5+ within 10 min)
         now = time.time()
@@ -342,7 +342,7 @@ def main():
                     stderr_content = sf.read().strip()
                 if stderr_content:
                     stderr_tail = stderr_content[-500:]
-                    log(f"teleclaw stderr: {stderr_tail}")
+                    log(f"tg-claw stderr: {stderr_tail}")
                     if elapsed < MIN_ALIVE_SEC:
                         tg_send(msg("daemon_crash_stderr", stderr=stderr_tail[:1000]))
             except Exception:
@@ -350,7 +350,7 @@ def main():
 
         # Existing instance running → wait 60s while polling
         if exit_code == EXIT_ALREADY_RUNNING:
-            log("TeleClaw already running, waiting 60s")
+            log("tg-claw already running, waiting 60s")
             result = wait_with_polling(60, fail_count, start_time)
             if result == "kill":
                 return

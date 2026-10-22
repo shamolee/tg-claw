@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS poll_offsets (
     updated_at REAL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS teleclaw_state (
+CREATE TABLE IF NOT EXISTS tg_claw_state (
     key TEXT PRIMARY KEY,
     value TEXT DEFAULT '',
     updated_at REAL DEFAULT 0
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS teleclaw_state (
 
 
 def init(db_path: str = ""):
-    """Initialize the DB. Defaults to STATE_DIR/teleClaw.db when db_path is not given."""
+    """Initialize the DB. Defaults to STATE_DIR/tg_claw.db when db_path is not given."""
     global _DB_PATH
     if not db_path:
         from .config import STATE_DIR, DB_FILE
@@ -62,11 +62,13 @@ def init(db_path: str = ""):
         db_path = DB_FILE
     _DB_PATH = db_path
     conn = _get_conn()
-    # Legacy table name migration (supervisor_state → teleclaw_state)
+    # Legacy table name migration (supervisor_state / teleclaw_state → tg_claw_state)
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-    if "supervisor_state" in tables and "teleclaw_state" not in tables:
-        conn.execute("ALTER TABLE supervisor_state RENAME TO teleclaw_state")
-        conn.commit()
+    for legacy in ("teleclaw_state", "supervisor_state"):
+        if legacy in tables and "tg_claw_state" not in tables:
+            conn.execute(f"ALTER TABLE {legacy} RENAME TO tg_claw_state")
+            conn.commit()
+            break
     conn.executescript(_SCHEMA)
     conn.commit()
 
@@ -204,19 +206,19 @@ def get_offset(bot_id: str) -> int:
     return row["offset_val"] if row else 0
 
 
-# --- TeleClaw global state ---
+# --- tg-claw global state ---
 
 def set_state(key: str, value: str):
     conn = _get_conn()
     conn.execute(
-        "INSERT OR REPLACE INTO teleclaw_state (key, value, updated_at) VALUES (?, ?, ?)",
+        "INSERT OR REPLACE INTO tg_claw_state (key, value, updated_at) VALUES (?, ?, ?)",
         (key, value, time.time()))
     conn.commit()
 
 
 def get_state(key: str, default: str = "") -> str:
     conn = _get_conn()
-    row = conn.execute("SELECT value FROM teleclaw_state WHERE key=?", (key,)).fetchone()
+    row = conn.execute("SELECT value FROM tg_claw_state WHERE key=?", (key,)).fetchone()
     return row["value"] if row else default
 
 

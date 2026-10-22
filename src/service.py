@@ -15,7 +15,7 @@ def _get_python():
 
 
 def _get_wrapper_path():
-    return str(Path(__file__).resolve().parent / "teleclaw_daemon.py")
+    return str(Path(__file__).resolve().parent / "tg_claw_daemon.py")
 
 
 def _get_service_dir():
@@ -27,14 +27,14 @@ def _get_service_dir():
 def _systemd_install():
     service_dir = Path.home() / ".config" / "systemd" / "user"
     service_dir.mkdir(parents=True, exist_ok=True)
-    service_file = service_dir / "teleclaw.service"
+    service_file = service_dir / "tg-claw.service"
 
     python = _get_python()
     wrapper = _get_wrapper_path()
     work_dir = str(_get_service_dir())
 
     content = f"""[Unit]
-Description=TeleClaw - Telegram remote control for Claude Code
+Description=tg-claw - Telegram remote control for Claude Code
 After=network-online.target
 Wants=network-online.target
 
@@ -47,42 +47,42 @@ RestartSec=10
 Environment=PYTHONUNBUFFERED=1
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=teleclaw
+SyslogIdentifier=tg-claw
 
 [Install]
 WantedBy=default.target
 """
     service_file.write_text(content)
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "--user", "enable", "teleclaw"], check=True)
-    subprocess.run(["systemctl", "--user", "start", "teleclaw"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "tg-claw"], check=True)
+    subprocess.run(["systemctl", "--user", "start", "tg-claw"], check=True)
     # loginctl enable-linger for auto-start without login
     user = os.environ.get("USER", "")
     if user:
         subprocess.run(["loginctl", "enable-linger", user], capture_output=True)
     print(f"Installed: {service_file}")
     print("Commands:")
-    print("  systemctl --user status teleclaw")
-    print("  journalctl --user -u teleclaw -f")
-    print("  systemctl --user stop teleclaw")
+    print("  systemctl --user status tg-claw")
+    print("  journalctl --user -u tg-claw -f")
+    print("  systemctl --user stop tg-claw")
 
 
 def _systemd_uninstall():
-    subprocess.run(["systemctl", "--user", "stop", "teleclaw"], capture_output=True)
-    subprocess.run(["systemctl", "--user", "disable", "teleclaw"], capture_output=True)
-    service_file = Path.home() / ".config" / "systemd" / "user" / "teleclaw.service"
+    subprocess.run(["systemctl", "--user", "stop", "tg-claw"], capture_output=True)
+    subprocess.run(["systemctl", "--user", "disable", "tg-claw"], capture_output=True)
+    service_file = Path.home() / ".config" / "systemd" / "user" / "tg-claw.service"
     if service_file.exists():
         service_file.unlink()
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    print("Uninstalled: teleclaw.service")
+    print("Uninstalled: tg-claw.service")
 
 
 def _systemd_status():
-    subprocess.run(["systemctl", "--user", "status", "teleclaw"])
+    subprocess.run(["systemctl", "--user", "status", "tg-claw"])
 
 
 def _systemd_logs(n: int = 50):
-    subprocess.run(["journalctl", "--user", "-u", "teleclaw", "-n", str(n), "--no-pager"])
+    subprocess.run(["journalctl", "--user", "-u", "tg-claw", "-n", str(n), "--no-pager"])
 
 
 # --- Windows (Task Scheduler) ---
