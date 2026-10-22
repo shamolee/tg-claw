@@ -6,6 +6,43 @@ import httpx
 from .config import CHAT_ID, PROJECTS
 from .logging_utils import log
 
+# --- 봇 명령어 메뉴 (Telegram의 "/" 자동완성) ---
+
+# (command, en, ko) — 이름은 소문자/숫자/_ 만 허용, 별칭(/s, /u 등)은 메뉴에서 제외
+BOT_COMMANDS = [
+    ("status", "Session status (OK / DEAD / STUCK)", "세션 상태"),
+    ("usage", "Claude usage (5h / 7d limits)", "API 사용량"),
+    ("sys", "System info (CPU / memory / processes)", "시스템 (CPU/RAM)"),
+    ("log", "Recent logs", "최근 로그"),
+    ("mode", "Output mode: minimal or normal", "출력 모드"),
+    ("esc", "Interrupt the current task", "현재 작업 중단"),
+    ("pause", "Pause the session", "세션 일시정지"),
+    ("restart", "Restart the session (keeps context)", "세션 재시작 (컨텍스트 유지)"),
+    ("reset", "Reset the session (clears context)", "세션 리셋 (컨텍스트 초기화)"),
+    ("ask", "Quick question in a separate session", "별도 세션에 빠른 질문"),
+    ("compact", "Compress context", "컨텍스트 압축"),
+    ("context", "Context usage details", "컨텍스트 사용량"),
+    ("cost", "Session cost and duration", "세션 비용/시간"),
+    ("help", "Command list", "명령어 목록"),
+]
+
+
+def register_bot_commands(bot_token: str, lang: str = "en") -> bool:
+    """봇 명령어 목록을 Telegram에 등록 (setMyCommands). 실패해도 예외 없이 False."""
+    idx = 2 if lang == "ko" else 1
+    commands = [{"command": c[0], "description": c[idx]} for c in BOT_COMMANDS]
+    url = f"https://api.telegram.org/bot{bot_token}/setMyCommands"
+    try:
+        r = httpx.post(url, json={"commands": commands}, timeout=15)
+        ok = bool(r.json().get("ok"))
+        if not ok:
+            log(f"setMyCommands 실패: {r.text[:200]}")
+        return ok
+    except Exception as e:
+        log(f"setMyCommands 실패: {e}")
+        return False
+
+
 # --- 텔레그램 API ---
 
 def send_telegram(text: str, bot_token: str, bot_name: str = "", use_html: bool = False, notify: bool = False) -> int:

@@ -108,13 +108,29 @@ for name, info in _cfg.get("projects", {}).items():
 
 # config.yaml 위치 기준으로 디렉토리 설정 (pip install 환경 대응)
 TELECLAW_DIR = os.path.dirname(_CONFIG_PATH) if _CONFIG_PATH else _TELECLAW_DIR
-LOGS_DIR = os.path.join(TELECLAW_DIR, "logs")
+
+# 런타임 파일은 모두 storage_dir 아래 (상대 경로는 config.yaml 위치 기준)
+STORAGE_DIR = os.path.join(TELECLAW_DIR, os.path.expanduser(_cfg.get("storage_dir", "storage")))
+LOGS_DIR = os.path.join(STORAGE_DIR, "logs")        # 로그만
+LOCKS_DIR = os.path.join(STORAGE_DIR, "locks")      # 단일 인스턴스 lock
+STATE_DIR = os.path.join(STORAGE_DIR, "state")      # 재시작 후에도 유지해야 하는 상태
+UPLOADS_DIR = os.path.join(STORAGE_DIR, "uploads")  # 텔레그램으로 받은 이미지/파일
+
 LOG_FILE = os.path.join(LOGS_DIR, "teleclaw.log")
-LOCK_FILE = os.path.join(LOGS_DIR, "teleclaw.lock")
-STATUS_FILE = os.path.join(LOGS_DIR, "teleclaw_status.json")
-SESSION_IDS_FILE = os.path.join(LOGS_DIR, "session_ids.json")
-DATA_DIR = os.path.join(TELECLAW_DIR, "data")
+WRAPPER_LOG_FILE = os.path.join(LOGS_DIR, "wrapper.log")
+STDERR_LOG_FILE = os.path.join(LOGS_DIR, "teleclaw_stderr.log")
+LOCK_FILE = os.path.join(LOCKS_DIR, "teleclaw.lock")
+WRAPPER_LOCK_FILE = os.path.join(LOCKS_DIR, "wrapper.lock")
+STATUS_FILE = os.path.join(STATE_DIR, "teleclaw_status.json")
+SESSION_IDS_FILE = os.path.join(STATE_DIR, "session_ids.json")
+DB_FILE = os.path.join(STATE_DIR, "teleClaw.db")
 CLAUDE_SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
+
+# 업로드 보관 기간 (일). 0이면 삭제하지 않음
+UPLOAD_RETENTION_DAYS = int(_cfg.get("upload_retention_days", 7))
+
+# Windows 예약 작업 이름 (service.py, win-scripts/*.ps1)
+SERVICE_NAME = _cfg.get("service_name", "TeleClaw")
 
 # --- 상수 ---
 

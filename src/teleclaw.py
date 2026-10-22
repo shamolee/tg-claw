@@ -36,18 +36,20 @@ def _patched_parse(data):
 _mp.parse_message = _patched_parse
 
 from .config import (
-    PROJECTS, CHAT_ID, ALLOWED_USERS, TELECLAW_DIR, LOGS_DIR, LOG_FILE,
-    STATUS_FILE, SESSION_IDS_FILE, DATA_DIR,
+    PROJECTS, CHAT_ID, ALLOWED_USERS, TELECLAW_DIR, LOG_FILE,
+    STATUS_FILE, SESSION_IDS_FILE, STATE_DIR, UPLOADS_DIR,
     HEALTH_CHECK_INTERVAL, STUCK_THRESHOLD,
     MAX_RESTARTS_PER_WINDOW, RESTART_WINDOW,
     AUTO_RESUME_ENABLED, AUTO_RESUME_MODE, AUTO_RESUME_PROMPTS,
-    ICON_THINKING, ICON_DONE, OUTPUT_LEVEL,
+    ICON_THINKING, ICON_DONE, OUTPUT_LEVEL, LANG,
 )
 from .logging_utils import log, _find_existing_teleclaw, _write_lock, _release_lock
+from .storage import ensure_storage, prune_uploads
 from .channel_telegram import TelegramChannel
 from .session import SessionState
 from .commands import handle_command, _get_usage
 from .messages import msg
+from .telegram_api import register_bot_commands
 from . import state_db as db
 
 
@@ -84,6 +86,7 @@ class TeleClaw:
 
         # AsyncClient 먼저 생성 (폴링에 필요)
         self._ahttp = httpx.AsyncClient(timeout=35)
+        self._loop = asyncio.get_running_loop()  # command handlers run in a thread
 
         # 각 채널에 ahttp 설정
         for state in self.sessions.values():
@@ -91,6 +94,10 @@ class TeleClaw:
 
         # 시작 알림 (채널 초기화 후)
         self._broadcast_sync(msg("sv_start"))
+
+        # "/" 자동완성 메뉴 등록 (봇 토큰별 1회, 실패해도 시작은 계속)
+        for token in {s.config.get("bot_token", "") for s in self.sessions.values()} - {""}:
+            await asyncio.to_thread(register_bot_commands, token, LANG)
 
         # 폴링 + 유틸리티 루프 즉시 시작 (연결 전에도 메시지 수신 가능)
         tasks = []
@@ -450,8 +457,14 @@ class TeleClaw:
     async def _health_check_loop(self):
         # 시작 후 2분 grace period
         await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+        last_prune = 0.0
         while not self._shutdown:
             try:
+                if time.time() - last_prune > 3600:  # 업로드 정리는 1시간마다
+                    last_prune = time.time()
+                    removed = prune_uploads()
+                    if removed:
+                        log(f"오래된 업로드 {removed}개 삭제")
                 for name, state in self.sessions.items():
                     if self._shutdown:
                         return
@@ -471,10 +484,9 @@ class TeleClaw:
 
     def _save_offset(self, bot_id: str, offset: int):
         """폴링 offset을 파일에 원자적으로 저장 (write→rename)."""
-        path = os.path.join(DATA_DIR, f"last_offset_{bot_id}.json")
+        path = os.path.join(STATE_DIR, f"last_offset_{bot_id}.json")
         tmp_path = path + ".tmp"
         try:
-            os.makedirs(DATA_DIR, exist_ok=True)
             with open(tmp_path, "w") as f:
                 json.dump({"offset": offset, "ts": time.time()}, f)
             os.replace(tmp_path, path)
@@ -483,7 +495,7 @@ class TeleClaw:
 
     def _load_offset(self, bot_id: str) -> int | None:
         """저장된 offset 복원. 없으면 None."""
-        path = os.path.join(DATA_DIR, f"last_offset_{bot_id}.json")
+        path = os.path.join(STATE_DIR, f"last_offset_{bot_id}.json")
         try:
             with open(path, "r") as f:
                 data = json.load(f)
@@ -617,7 +629,7 @@ class TeleClaw:
             download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
             r = await self._ahttp.get(download_url, timeout=30)
             # 로컬 저장
-            save_dir = os.path.join(LOGS_DIR, "images")
+            save_dir = os.path.join(UPLOADS_DIR, "images")
             os.makedirs(save_dir, exist_ok=True)
             ext = os.path.splitext(file_path)[1] or ".jpg"
             save_path = os.path.join(save_dir, f"{name}_{int(time.time())}{ext}")
@@ -635,7 +647,7 @@ class TeleClaw:
             data = await ch.download_file(file_id)
             if not data:
                 return ""
-            save_dir = os.path.join(LOGS_DIR, "images")
+            save_dir = os.path.join(UPLOADS_DIR, "images")
             os.makedirs(save_dir, exist_ok=True)
             save_path = os.path.join(save_dir, f"{name}_{int(time.time())}.jpg")
             with open(save_path, "wb") as f:
@@ -652,7 +664,7 @@ class TeleClaw:
             data = await ch.download_file(file_id)
             if not data:
                 return ""
-            save_dir = os.path.join(LOGS_DIR, "files")
+            save_dir = os.path.join(UPLOADS_DIR, "files")
             os.makedirs(save_dir, exist_ok=True)
             save_path = os.path.join(save_dir, file_name)
             with open(save_path, "wb") as f:
@@ -1318,7 +1330,8 @@ class TeleClaw:
 
 
 async def main():
-    os.makedirs(LOGS_DIR, exist_ok=True)
+    for note in ensure_storage():
+        log(f"storage 마이그레이션: {note}")
 
     existing_pid = _find_existing_teleclaw()
     if existing_pid:

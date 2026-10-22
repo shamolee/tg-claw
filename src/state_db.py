@@ -54,12 +54,12 @@ CREATE TABLE IF NOT EXISTS teleclaw_state (
 
 
 def init(db_path: str = ""):
-    """DB 초기화. db_path 미지정 시 DATA_DIR/teleClaw.db"""
+    """DB 초기화. db_path 미지정 시 STATE_DIR/teleClaw.db"""
     global _DB_PATH
     if not db_path:
-        from .config import DATA_DIR
-        os.makedirs(DATA_DIR, exist_ok=True)
-        db_path = os.path.join(DATA_DIR, "teleClaw.db")
+        from .config import STATE_DIR, DB_FILE
+        os.makedirs(STATE_DIR, exist_ok=True)
+        db_path = DB_FILE
     _DB_PATH = db_path
     conn = _get_conn()
     # 레거시 테이블명 마이그레이션 (supervisor_state → teleclaw_state)

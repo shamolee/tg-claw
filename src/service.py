@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .config import LOG_FILE, SERVICE_NAME
 from .messages import msg
 
 
@@ -90,7 +91,7 @@ def _schtasks_install():
     python = _get_python()
     wrapper = _get_wrapper_path()
     work_dir = str(_get_service_dir())
-    task_name = "TeleClaw"
+    task_name = SERVICE_NAME
 
     # 기존 태스크 제거
     subprocess.run(
@@ -117,18 +118,18 @@ def _schtasks_install():
 
 
 def _schtasks_uninstall():
-    task_name = "TeleClaw"
+    task_name = SERVICE_NAME
     subprocess.run(["schtasks", "/end", "/tn", task_name], capture_output=True)
     subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"], capture_output=True)
     print(f"Uninstalled: Task Scheduler '{task_name}'")
 
 
 def _schtasks_status():
-    subprocess.run(["schtasks", "/query", "/tn", "TeleClaw", "/v", "/fo", "list"])
+    subprocess.run(["schtasks", "/query", "/tn", SERVICE_NAME, "/v", "/fo", "list"])
 
 
 def _schtasks_logs(n: int = 50):
-    log_file = _get_service_dir() / "logs" / "teleclaw.log"
+    log_file = Path(LOG_FILE)
     if not log_file.exists():
         print("No log file")
         return

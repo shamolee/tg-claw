@@ -15,6 +15,18 @@ from .messages import msg
 from . import state_db as db
 
 
+def _spawn(teleclaw, coro):
+    """Schedule a coroutine from either the event loop or a worker thread.
+
+    Command handlers run via asyncio.to_thread, where asyncio.create_task
+    has no running loop, so hand the coroutine to TeleClaw's main loop.
+    """
+    try:
+        return asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        return asyncio.run_coroutine_threadsafe(coro, teleclaw._loop)
+
+
 async def _do_interrupt(state, name: str, channel):
     """세션의 현재 작업을 중단한다."""
     try:
@@ -76,10 +88,11 @@ def _get_usage(http_client) -> str:
 
     from .usage_fmt import usage_bar as _bar, reset_str as _reset_str
 
-    five = data.get("five_hour", {})
-    seven = data.get("seven_day", {})
-    sonnet = data.get("seven_day_sonnet", {})
-    opus = data.get("seven_day_opus", {})
+    # API가 키는 주되 값을 null로 줄 수 있음 (예: 구독 유형에 따라) -> `or {}` 필요
+    five = data.get("five_hour") or {}
+    seven = data.get("seven_day") or {}
+    sonnet = data.get("seven_day_sonnet") or {}
+    opus = data.get("seven_day_opus") or {}
 
     lines = [msg("usage_header")]
     lines.append("")
@@ -96,6 +109,9 @@ def _get_usage(http_client) -> str:
     if opus and opus.get("utilization") is not None:
         pct = opus["utilization"]
         lines.append(f"Opus {_bar(pct)} {_reset_str(opus)}")
+
+    if len(lines) == 2:  # header + blank only: API returned no usage buckets
+        lines.append("(no usage data returned by the API)")
 
     text = "\n".join(lines)
     # 캐시 저장
@@ -150,7 +166,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             return True
         if name and name in teleclaw.sessions:
             db.set_paused(name, False)
-            asyncio.create_task(teleclaw._restart_session(teleclaw.sessions[name], "/restart 명령", mode="resume", force=True, no_resume=no_resume))
+            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], "/restart 명령", mode="resume", force=True, no_resume=no_resume))
             tag = " (noresume)" if no_resume else ""
             channel.send_sync(msg("restart_requested", name=name, tag=tag))
         elif name:
@@ -173,7 +189,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             old_client = state.client
             state.client = None
             if old_client:
-                asyncio.create_task(teleclaw._safe_disconnect(old_client, name))
+                _spawn(teleclaw, teleclaw._safe_disconnect(old_client, name))
             state.connected = False
             state.busy = False
             log(f"{name}: 일시정지됨 (/pause 명령)")
@@ -190,7 +206,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         if name and name in teleclaw.sessions:
             state = teleclaw.sessions[name]
             if state.connected and state.client:
-                asyncio.create_task(_do_interrupt(state, name, channel))
+                _spawn(teleclaw, _do_interrupt(state, name, channel))
             else:
                 channel.send_sync(msg("session_not_connected", name=name))
         elif name:
@@ -204,7 +220,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
             name = _find_session_by_token(teleclaw.sessions, bot_token)
         if name and name in teleclaw.sessions:
             db.set_paused(name, False)
-            asyncio.create_task(teleclaw._restart_session(teleclaw.sessions[name], "/reset 명령 (컨텍스트 초기화)", mode="reset", force=True))
+            _spawn(teleclaw, teleclaw._restart_session(teleclaw.sessions[name], "/reset 명령 (컨텍스트 초기화)", mode="reset", force=True))
             channel.send_sync(msg("reset_requested", name=name))
         elif name:
             channel.send_sync(msg("session_not_found", name=name, available=", ".join(teleclaw.sessions)))
@@ -316,7 +332,7 @@ def handle_command(teleclaw, text: str, bot_token: str, channel) -> bool:
         if not arg:
             channel.send_sync(msg("ask_usage"))
             return True
-        asyncio.create_task(teleclaw._handle_ask(arg, bot_token))
+        _spawn(teleclaw, teleclaw._handle_ask(arg, bot_token))
         return True
 
     if cmd in ("/help", "/h"):

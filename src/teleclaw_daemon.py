@@ -20,13 +20,13 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-TELECLAW_DIR = os.path.dirname(os.path.dirname(__file__))  # D:/workspace/supervisor/
 PYTHON = sys.executable
-LOGS_DIR = os.path.join(TELECLAW_DIR, "logs")
-LOG_FILE = os.path.join(LOGS_DIR, "wrapper.log")
-SV_LOG_FILE = os.path.join(LOGS_DIR, "teleclaw.log")
-LOCK_FILE = os.path.join(LOGS_DIR, "wrapper.lock")
-from .config import PROJECTS, CHAT_ID, ALLOWED_USERS
+from .config import (
+    PROJECTS, CHAT_ID, ALLOWED_USERS, _TELECLAW_DIR,
+    WRAPPER_LOG_FILE as LOG_FILE, LOG_FILE as SV_LOG_FILE,
+    WRAPPER_LOCK_FILE as LOCK_FILE, STDERR_LOG_FILE,
+)
+from .storage import ensure_storage
 from .messages import msg
 BOT_TOKENS = [p["bot_token"] for p in PROJECTS.values()]
 BOT_TOKEN = BOT_TOKENS[0] if BOT_TOKENS else ""
@@ -229,17 +229,75 @@ def _acquire_lock() -> bool:
 
 
 def _release_lock():
+    # 다른 래퍼의 lock은 지우지 않음 (lock 획득 실패 후 종료 시에도 호출됨)
     try:
+        with open(LOCK_FILE, "r", encoding="utf-8") as f:
+            if json.load(f).get("pid") != os.getpid():
+                return
         os.remove(LOCK_FILE)
     except Exception:
         pass
 
 
+def _bind_children_to_self():
+    """Windows: put this process in a kill-on-close job so children die with it."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    class _Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class _IoCounters(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in (
+            "ReadOps", "WriteOps", "OtherOps", "ReadBytes", "WriteBytes", "OtherBytes")]
+
+    class _Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", _Basic),
+                    ("IoInfo", _IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    job = k32.CreateJobObjectW(None, None)
+    info = _Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+    ok = k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+    if not ok or not k32.AssignProcessToJobObject(job, k32.GetCurrentProcess()):
+        log(f"job object 설정 실패: {ctypes.get_last_error()}")
+        return
+    global _JOB_HANDLE
+    _JOB_HANDLE = job  # keep open for the process lifetime
+
+
+_JOB_HANDLE = None
+
+
 def main():
+    migrated = ensure_storage()
     if not _acquire_lock():
         print(msg("daemon_already_running"))
         sys.exit(0)
+    for note in migrated:
+        log(f"storage 마이그레이션: {note}")
 
+    _bind_children_to_self()
     fail_count = 0
     notified = False
     start_time = time.time()
@@ -256,11 +314,12 @@ def main():
         sv_start = time.time()
 
         # stderr만 파일로 캡처 (capture_output은 자식 프로세스 blocking 유발)
-        stderr_file = os.path.join(LOGS_DIR, "teleclaw_stderr.log")
-        with open(stderr_file, "w", encoding="utf-8") as sf:
+        # stdout은 콘솔일 때만 그대로 보여줌. 서비스로 실행 시 teleclaw.log와 중복이라 버림
+        with open(STDERR_LOG_FILE, "w", encoding="utf-8") as sf:
             proc = subprocess.run(
                 [PYTHON, "-m", "src"],
-                cwd=TELECLAW_DIR,
+                cwd=_TELECLAW_DIR,
+                stdout=None if sys.stdout.isatty() else subprocess.DEVNULL,
                 stderr=sf,
             )
 
@@ -279,7 +338,7 @@ def main():
         # 비정상 종료 시 stderr 기록
         if exit_code != 0:
             try:
-                with open(stderr_file, "r", encoding="utf-8", errors="replace") as sf:
+                with open(STDERR_LOG_FILE, "r", encoding="utf-8", errors="replace") as sf:
                     stderr_content = sf.read().strip()
                 if stderr_content:
                     stderr_tail = stderr_content[-500:]

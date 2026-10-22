@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+storage/
+# legacy (pre-storage/) locations
 logs/
 data/
 config.yaml
@@ -11,3 +13,4 @@ docs/
 .claude/settings.local.json
 bash.exe.stackdump
 tests/*.md
+.venv

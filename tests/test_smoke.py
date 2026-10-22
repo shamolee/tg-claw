@@ -14,14 +14,12 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-TELECLAW_DIR = os.path.dirname(os.path.dirname(__file__))
-LOGS_DIR = os.path.join(TELECLAW_DIR, "logs")
-DATA_DIR = os.path.join(TELECLAW_DIR, "data")
-STATUS_FILE = os.path.join(LOGS_DIR, "teleclaw_status.json")
-LOG_FILE = os.path.join(LOGS_DIR, "teleclaw.log")
-WRAPPER_LOG = os.path.join(LOGS_DIR, "wrapper.log")
-SESSION_IDS_FILE = os.path.join(LOGS_DIR, "session_ids.json")
-LOCK_FILE = os.path.join(LOGS_DIR, "teleclaw.lock")
+TELECLAW_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TELECLAW_DIR)
+from src.config import (  # noqa: E402
+    LOGS_DIR, STATE_DIR as DATA_DIR, STATUS_FILE, LOG_FILE, SESSION_IDS_FILE, LOCK_FILE,
+    WRAPPER_LOG_FILE as WRAPPER_LOG,
+)
 
 passed = 0
 failed = 0
@@ -426,7 +424,7 @@ test("하위 호환 (문자열 session_id)", "isinstance(val, str)" in sv_code)
 test("os._exit 전 _save_session_ids", "_save_session_ids()" in sv_code and "os._exit" in sv_code)
 # session_ids.json 포맷 확인
 try:
-    with open(os.path.join(LOGS_DIR, "session_ids.json"), "r") as f:
+    with open(SESSION_IDS_FILE, "r") as f:
         sid_data = json.load(f)
     # dict 형태 확인 (새 포맷)
     has_dict = any(isinstance(v, dict) for v in sid_data.values())
@@ -553,7 +551,7 @@ test("[수정] 태그 부착", "[수정]" in sv_code)
 print("\n#50: document/file 메시지 처리")
 test("document 메시지 감지", 'msg.get("document")' in sv_code)
 test("getFile API 호출", "getFile" in sv_code)
-test("파일 저장 디렉토리", 'os.path.join(LOGS_DIR, "files")' in sv_code)
+test("파일 저장 디렉토리", 'os.path.join(UPLOADS_DIR, "files")' in sv_code)
 test("캡션 분기", "caption" in sv_code)
 
 # ==========================================================

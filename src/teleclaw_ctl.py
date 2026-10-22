@@ -22,14 +22,14 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-TELECLAW_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = TELECLAW_DIR / "data"
-LOGS_DIR = TELECLAW_DIR / "logs"
-STATUS_FILE = LOGS_DIR / "teleclaw_status.json"
-LOG_FILE = LOGS_DIR / "teleclaw.log"
-
 from .messages import msg
 from .config import PROJECTS
+from . import config as _config
+from .storage import ensure_storage
+
+STATUS_FILE = Path(_config.STATUS_FILE)
+LOG_FILE = Path(_config.LOG_FILE)
+SESSION_IDS_FILE = Path(_config.SESSION_IDS_FILE)
 from . import state_db as db
 
 SESSION_NAMES = list(PROJECTS.keys())
@@ -307,8 +307,8 @@ def cmd_usage():
 
     from .usage_fmt import usage_bar as _bar, reset_str as _reset_str
 
-    five = data.get("five_hour", {})
-    seven = data.get("seven_day", {})
+    five = data.get("five_hour") or {}
+    seven = data.get("seven_day") or {}
     if five.get("utilization") is not None:
         print(f"5h   {_bar(five['utilization'])} {_reset_str(five)}")
     if seven.get("utilization") is not None:
@@ -321,7 +321,6 @@ PROJECT_DIRS = {
     for name, info in PROJECTS.items()
 }
 SESSIONS_BASE = Path.home() / ".claude" / "projects"
-SESSION_IDS_FILE = LOGS_DIR / "session_ids.json"
 
 
 def cmd_ctx():
@@ -392,6 +391,7 @@ def cmd_help():
 
 
 def main():
+    ensure_storage()  # db.init()이 빈 DB를 먼저 만들어 마이그레이션을 막지 않도록
     db.init()
 
     if len(sys.argv) < 2:

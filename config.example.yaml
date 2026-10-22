@@ -5,6 +5,15 @@
 # 언어 (ko / en)
 lang: "en"
 
+# Windows 예약 작업 이름 (win-scripts/*.ps1 에서 사용, 기본값 TeleClaw)
+service_name: "TeleClaw"
+
+# 런타임 파일 위치 (logs/ locks/ state/ uploads/). 상대 경로는 이 파일 위치 기준
+storage_dir: "storage"
+
+# 텔레그램으로 받은 이미지/파일 보관 기간 (일, 0 = 삭제 안 함)
+upload_retention_days: 7
+
 # 텔레그램 채팅 ID (봇과 대화할 사용자)
 chat_id: "YOUR_TELEGRAM_CHAT_ID"
 
