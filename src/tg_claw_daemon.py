@@ -24,7 +24,7 @@ PYTHON = sys.executable
 from .config import (
     PROJECTS, CHAT_ID, ALLOWED_USERS, _TG_CLAW_DIR,
     WRAPPER_LOG_FILE as LOG_FILE, LOG_FILE as SV_LOG_FILE,
-    WRAPPER_LOCK_FILE as LOCK_FILE, STDERR_LOG_FILE,
+    WRAPPER_LOCK_FILE as LOCK_FILE, STDERR_LOG_FILE, WRAPPER_LOG_MAX_LINES,
 )
 from .storage import ensure_storage
 from .messages import msg
@@ -46,9 +46,9 @@ def log(msg: str):
             f.write(line + "\n")
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        if len(lines) > 200:
+        if len(lines) > WRAPPER_LOG_MAX_LINES:
             with open(LOG_FILE, "w", encoding="utf-8") as f:
-                f.writelines(lines[-200:])
+                f.writelines(lines[-WRAPPER_LOG_MAX_LINES:])
     except Exception:
         pass
 

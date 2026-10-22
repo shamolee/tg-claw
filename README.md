@@ -136,6 +136,10 @@ All settings live in `config.yaml`. tg-claw looks for it in this order:
 | `icons` | | Optional `thinking` and `done` icons for status messages. |
 | `storage_dir` | `storage` | Where logs, locks, state and uploads go. A relative path is resolved from the folder containing `config.yaml`. |
 | `upload_retention_days` | `7` | Delete images and files received from Telegram after this many days. `0` keeps them forever. |
+| `log_retention_days` | `7` | Delete daily log archives (`tg_claw_<date>.log`) after this many days. `0` keeps them forever. |
+| `log_max_lines` | `500` | Recent lines kept in `tg_claw.log`; older lines move to that day's archive. |
+| `wrapper_log_max_lines` | `200` | Recent lines kept in `wrapper.log`. |
+| `task_log_max_mb` | `5` | Windows only: rotate `task_out.log` past this size when the task starts, keeping one old copy. `0` never rotates. Re-run the installer after changing it. |
 | `service_name` | `tg-claw` | Name of the Windows scheduled task. |
 
 Several projects, each with its own bot:
@@ -273,7 +277,7 @@ Everything tg-claw writes at runtime goes under `storage/`, or the folder set by
 
 ```
 storage/
-  logs/      tg_claw.log (+ daily archives, kept 7 days), wrapper.log,
+  logs/      tg_claw.log (+ daily archives), wrapper.log,
              tg_claw_stderr.log, task_out.log
   locks/     single-instance locks for the app and the wrapper
   state/     SQLite state, Claude session IDs, Telegram offsets, status

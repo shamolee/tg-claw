@@ -8,8 +8,10 @@ $claude = Get-Command claude -ErrorAction SilentlyContinue | Select-Object -Firs
 if (-not $claude) { Write-Error 'claude not found on PATH. Install Claude Code first.'; exit 1 }
 $claudeDir = Split-Path -Parent $claude.Source
 
-# run_tg_claw.cmd does its own logging into $LogsDir\task_out.log.
-$a = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$root\run_tg_claw.cmd`" `"$claudeDir`" `"$LogsDir`"`"" -WorkingDirectory $root
+# run_tg_claw.cmd does its own logging into $LogsDir\task_out.log, rotated past task_log_max_mb.
+# cmd compares sizes as 32-bit numbers, so cap at 2047 MB.
+$taskLogBytes = [Math]::Min([int](Get-ConfigValue 'task_log_max_mb' '5'), 2047) * 1MB
+$a = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"`"$root\run_tg_claw.cmd`" `"$claudeDir`" `"$LogsDir`" $taskLogBytes`"" -WorkingDirectory $root
 $t = @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn -User $user))
 $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
      -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew

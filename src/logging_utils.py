@@ -5,7 +5,7 @@ import sys
 import json
 import time
 
-from .config import LOG_FILE, LOCK_FILE, LOGS_DIR, _CONFIG_PATH
+from .config import LOG_FILE, LOCK_FILE, LOGS_DIR, _CONFIG_PATH, LOG_RETENTION_DAYS, LOG_MAX_LINES
 
 # --- Logging ---
 
@@ -13,15 +13,17 @@ _log_line_count = 0
 
 
 def _archive_lines(lines: list[str]):
-    """Archive trimmed log lines into per-day files. Archives older than 7 days are deleted."""
+    """Archive trimmed log lines into per-day files. Archives older than LOG_RETENTION_DAYS are deleted."""
     try:
         date_str = time.strftime("%Y-%m-%d")
         archive_path = os.path.join(LOGS_DIR, f"tg_claw_{date_str}.log")
         with open(archive_path, "a", encoding="utf-8") as f:
             f.writelines(lines)
-        # Delete archives older than 7 days
+        if LOG_RETENTION_DAYS <= 0:
+            return
+        # Delete archives older than LOG_RETENTION_DAYS
         import glob, datetime
-        cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=LOG_RETENTION_DAYS)).strftime("%Y-%m-%d")
         for path in glob.glob(os.path.join(LOGS_DIR, "tg_claw_????-??-??.log")):
             fname = os.path.basename(path)
             date_part = fname.replace("tg_claw_", "").replace(".log", "")
@@ -46,11 +48,11 @@ def log(msg: str):
             _log_line_count = 0
             with open(LOG_FILE, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            if len(lines) > 500:
+            if len(lines) > LOG_MAX_LINES:
                 # Archive the trimmed lines into the per-day file
-                _archive_lines(lines[:-500])
+                _archive_lines(lines[:-LOG_MAX_LINES])
                 with open(LOG_FILE, "w", encoding="utf-8") as f:
-                    f.writelines(lines[-500:])
+                    f.writelines(lines[-LOG_MAX_LINES:])
     except Exception as e:
         print(f"[logging] failed to write log file: {e}", file=sys.stderr, flush=True)
 

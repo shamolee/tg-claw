@@ -23,6 +23,15 @@ if not _CONFIG_PATH:
     _CONFIG_PATH = os.path.join(_TG_CLAW_DIR, "config.yaml")  # fallback (used for the "not found" warning)
 
 
+def _scalar(val: str) -> str:
+    """Fallback-parser value: unquote "x"/'x' and drop a trailing # comment."""
+    val = val.strip()
+    if val[:1] in ('"', "'"):
+        end = val.find(val[0], 1)
+        return val[1:end] if end > 0 else val[1:]
+    return val.split(" #", 1)[0].strip()
+
+
 def _load_yaml(path: str) -> dict:
     """Load config.yaml. Uses PyYAML if available, otherwise a simple fallback parser."""
     if not os.path.exists(path):
@@ -48,7 +57,7 @@ def _load_yaml(path: str) -> dict:
         indent = len(line) - len(line.lstrip())
         if indent == 0 and ":" in stripped:
             key, _, val = stripped.partition(":")
-            val = val.strip().strip('"').strip("'")
+            val = _scalar(val)
             if val:
                 result[key.strip()] = val
             else:
@@ -57,7 +66,7 @@ def _load_yaml(path: str) -> dict:
                 current_item = None
         elif indent == 2 and current_section and ":" in stripped:
             key, _, val = stripped.partition(":")
-            val = val.strip().strip('"').strip("'")
+            val = _scalar(val)
             if val:
                 if current_item and isinstance(result[current_section].get(current_item), dict):
                     result[current_section][current_item][key.strip()] = val
@@ -68,7 +77,7 @@ def _load_yaml(path: str) -> dict:
                 result[current_section][current_item] = {}
         elif indent == 4 and current_section and current_item and ":" in stripped:
             key, _, val = stripped.partition(":")
-            val = val.strip().strip('"').strip("'")
+            val = _scalar(val)
             result[current_section][current_item][key.strip()] = val
     return result
 
@@ -130,6 +139,12 @@ CLAUDE_SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions
 
 # Upload retention in days. 0 = never delete
 UPLOAD_RETENTION_DAYS = int(_cfg.get("upload_retention_days", 7))
+
+# Log retention
+LOG_RETENTION_DAYS = int(_cfg.get("log_retention_days", 7))          # daily tg_claw_<date>.log archives; 0 = keep forever
+LOG_MAX_LINES = int(_cfg.get("log_max_lines", 500))                  # tg_claw.log keeps this many recent lines
+WRAPPER_LOG_MAX_LINES = int(_cfg.get("wrapper_log_max_lines", 200))  # wrapper.log keeps this many recent lines
+TASK_LOG_MAX_MB = int(_cfg.get("task_log_max_mb", 5))                # task_out.log rotation (Windows launcher); 0 = never
 
 # Windows scheduled task name (service.py, win-scripts/*.ps1)
 SERVICE_NAME = _cfg.get("service_name", "tg-claw")
